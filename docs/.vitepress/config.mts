@@ -28,6 +28,7 @@ const docs = [
     { text: 'The document', link: '/reference/document' },
     { text: 'Input',        link: '/reference/input' },
     { text: 'Extensions',   link: '/reference/extensions' },
+    { text: 'Conformance',  link: '/reference/conformance' },
     { text: 'API',          link: '/api/' },
   ] },
   { text: 'Project', items: [

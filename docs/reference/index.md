@@ -38,7 +38,7 @@ The procedures are type-bound methods of these types.
 | 1. The document and the blocks | [The document](/reference/document) | nodes, kinds, accessors, editing, compaction | 1.1 |
 | | [Input](/reference/input) | loading from text, a `string` or a file; sanitising, encodings, line endings | 1.2 |
 | | [Extensions](/reference/extensions) | the hooks, their contract, registered kinds, the options | 1.3 |
-| | Conformance | how to run the spec suite, what is normalised, the pinned version and counts | 1.4 |
+| | [Conformance](/reference/conformance) | how to run the spec suite, what is normalised, the pinned version and counts | 1.4 |
 | | Blocks | the block kinds and their fields | 1.5 |
 | | HTML | the renderer: fragment and standalone output | 1.6 |
 | | Walk | the events and their offsets | 1.6 |
@@ -57,5 +57,6 @@ The procedures are type-bound methods of these types.
 
 ## Elsewhere
 
+- [Conformance](/reference/conformance): the CommonMark 0.31.2 suite, how to run it, the current counts.
 - [API](/api/): every module, type and procedure, generated from the sources by formal.
 - [Conventions](/guide/conventions): errors, input, the MPI/OpenMP-agnostic contract.

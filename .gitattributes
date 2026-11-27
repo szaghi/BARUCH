@@ -1,3 +1,7 @@
 # test and example inputs in other encodings and line endings: their bytes are the test, never normalised
 src/tests/data/encoding_*.md binary
 docs/examples/files/*.md binary
+# conformance fixtures: the pinned spec and the pairs generated from it, byte for byte (tabs, trailing spaces);
+# scripts/spec/fixtures.py --check compares them with the pinned file
+src/tests/spec/*/spec.json -text -whitespace
+src/tests/spec/*/examples/* -text -whitespace
