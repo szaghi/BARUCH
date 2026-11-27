@@ -1,12 +1,20 @@
 # Quick start
 
-The block structure is read ([tutorial chapter 3](/manual/tutorial/03-read)); inline content, the renderer and the
-writers are not written yet ([About](/guide/)). This page shows how a program uses the library today, and grows with
-it.
+The block structure is read ([tutorial chapter 3](/manual/tutorial/03-read)) and written as HTML
+([tutorial chapter 4](/manual/tutorial/04-render)); inline content and the writers are not written yet
+([About](/guide/)). This page shows how a program uses the library today, and grows with it.
 
 ## A first program
 
+A Markdown text read into a document and written back as HTML:
+
 <<< @/examples/snippets/hello.f90
+
+- `load` puts the text in the document (sanitised UTF-8, [Input](/reference/input)); `load_file` reads a file.
+- `parse` and `render_html` belong to the options, the object that says which extensions take part: here none,
+  CommonMark alone.
+- The HTML is a fragment, ready to embed in a page; `standalone=.true.` gives a whole page
+  ([HTML](/reference/html)).
 
 Build the library, then compile the program against it as any client does: the module files on the include path, the
 archive (which holds BARUCH and its dependencies) on the link line.
@@ -19,7 +27,8 @@ gfortran -Ilib/gnu/static/mod hello.f90 lib/gnu/static/libbaruch.a -o hello
 <<< @/examples/output/hello.ansi{ansi}
 
 The program and its output come from `docs/examples/src/hello.f90`, built and run by `scripts/docs_examples.sh`: the
-examples of these pages are never pasted by hand.
+examples of these pages are never pasted by hand. The README's quick start is the same program, copied into it by the
+same script.
 
 ## Tests
 

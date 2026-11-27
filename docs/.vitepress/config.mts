@@ -20,6 +20,7 @@ const docs = [
     { text: '1. A document by hand', link: '/manual/tutorial/01-document' },
     { text: '2. Write an extension', link: '/manual/tutorial/02-extension' },
     { text: '3. Read a document',    link: '/manual/tutorial/03-read' },
+    { text: '4. Render HTML',        link: '/manual/tutorial/04-render' },
   ] },
   { text: 'Cookbook', items: [
     { text: 'All recipes', link: '/manual/cookbook' },
@@ -30,6 +31,8 @@ const docs = [
     { text: 'Input',        link: '/reference/input' },
     { text: 'Extensions',   link: '/reference/extensions' },
     { text: 'Blocks',       link: '/reference/blocks' },
+    { text: 'HTML',         link: '/reference/html' },
+    { text: 'Walk',         link: '/reference/walk' },
     { text: 'Conformance',  link: '/reference/conformance' },
     { text: 'API',          link: '/api/' },
   ] },

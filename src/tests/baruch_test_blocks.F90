@@ -248,7 +248,7 @@ contains
    endsubroutine test_tabs_and_lazy
 
    subroutine test_spans()
-   !< Spans: a block quote and its paragraph, a list item, the root.
+   !< Spans: a block quote and its paragraph, a list item, the root; a list's end, in and out of a quote.
    type(markdown_document) :: doc !< Document.
    integer(I4P)            :: q   !< Block quote.
 
@@ -258,6 +258,13 @@ contains
    call check(span_of(doc, doc%first_child(q)) == 'quoted'//LF//'> more', 'spans: its paragraph')
    call check(span_of(doc, doc%first_child(child(doc, doc%root(), 3))) == '- item', 'spans: the item')
    call check(doc%span_first(doc%root()) == 1 .and. doc%span_last(doc%root()) == doc%source_length(), 'spans: root')
+   ! a list ends with its last item, not at the line that closes it; a `>` alone does not extend a list in the quote
+   call parse(doc, '- a'//LF//'- b'//LF//LF//'end'//LF//'> - x'//LF//'>'//LF//'> y'//LF)
+   call check(span_of(doc, child(doc, doc%root(), 1)) == '- a'//LF//'- b', &
+              'spans: list "'//span_of(doc, child(doc, doc%root(), 1))//'"')
+   q = doc%first_child(child(doc, doc%root(), 3))
+   call check(span_of(doc, q) == '- x' .and. span_of(doc, doc%first_child(q)) == '- x', &
+              'spans: list and item in a quote "'//span_of(doc, q)//'"')
    endsubroutine test_spans
 
    subroutine test_deep_nesting()

@@ -8,10 +8,12 @@ Every syntax beyond CommonMark goes through this interface, BARUCH's own extensi
 and 6) as much as a client's. The core is CommonMark only; extensions are compiled in and enabled per parse. A worked
 example: [tutorial chapter 2](/manual/tutorial/02-extension).
 
-::: info Status (plan step 1.5)
+::: info Status (plan step 1.6)
 Every hook is declared with its default. The **block** hooks are live: the CommonMark block parser
-([Blocks](/reference/blocks)) calls them on every line, an extension's starts before the core's. The inline hooks and
-`post_process` are called from step 2.5, the output hooks from steps 1.6 (HTML, walk) and 3.2 (Markdown).
+([Blocks](/reference/blocks)) calls them on every line, an extension's starts before the core's. The **HTML** and
+**walk** hooks are live too: the renderer ([HTML](/reference/html#extensions)) and the walk
+([Walk](/reference/walk#extensions)) call them. The inline hooks and `post_process` are called from step 2.5,
+`write_markdown` from step 3.2.
 :::
 
 ## The options
@@ -28,6 +30,8 @@ Assignment copies it (the extensions included).
 | `extensions_number()`, `extension_name(i, stat, errmsg)` | the registered extensions, enabled or not |
 | `register_kinds(doc, stat, errmsg)` | the enabled extensions register their kinds in a document (`parse` does it; a document built by hand with extension nodes needs it first) |
 | `parse(doc, stat, errmsg)` | the document's source (`load`, `load_file`) into its tree, with the enabled extensions |
+| `render_html(doc, html, ...)`, `render_html_file(doc, path, ...)` | the tree as HTML, the enabled extensions' nodes by their hooks ([HTML](/reference/html)) |
+| `walk(doc, node, event, ...)` | the tree as events, one per call ([Walk](/reference/walk)) |
 
 `parse` resets the tree to its root (the source and its lines are kept, the registered kinds are dropped), lets the
 enabled extensions register their kinds, then runs the block parser. It never fails on the text: every byte sequence is
@@ -56,9 +60,9 @@ hook that can fail has `stat` (`intent(inout)`, 0 on entry: leave it so unless t
 | `delimiter_chars()` | none | step 2.5 | characters whose runs take part in the delimiter algorithm (`~` for strikethrough) |
 | `delimiter_match(doc, delimiter, opener_length, closer_length, used, node, stat, errmsg)` | no match | step 2.5 | characters used from each run, the node wrapping the content |
 | `post_process(doc, stat, errmsg)` | nothing | step 2.5: after the whole parse | edit the parsed tree (task list checkboxes, footnote numbers) |
-| `write_html(doc, node, entering, html, handled, stat, errmsg)` | not mine | step 1.6 | a node as HTML, on entering and on leaving it |
+| `write_html(doc, node, entering, html, handled, stat, errmsg)` | not mine | **live**: by `render_html`, for every event of every node, core kinds too | a node as HTML, on entering and on leaving it ([HTML](/reference/html#extensions)) |
 | `write_markdown(doc, node, entering, markdown, handled, stat, errmsg)` | none: deferred | step 3.2 | a node as Markdown: mandatory, whatever an extension reads it writes back |
-| `walk_event(doc, node, entering, event, handled)` | not mine | step 1.6 | the walk event a node is reported as |
+| `walk_event(doc, node, entering, event, handled)` | not mine | **live**: by `walk` (and the renderer), for the extension kinds | the walk event a node is reported as ([Walk](/reference/walk#extensions)) |
 
 The inline hooks' arguments are declared now and settled in step 2.5, when the inline parser calls them (the plan
 amends the interface there if a GFM extension needs it, before any client depends on it).

@@ -130,9 +130,11 @@ The meaning slots are set too: `SLOT_HEADING_LEVEL`, `SLOT_LIST_TYPE`, `SLOT_LIS
 ## Spans
 
 Every block has a span (`span_first`, `span_last`): from the first byte of its marker (or of its first non-blank
-character: a paragraph, an indented code block) to the last byte of its last line that is not blank, endings
-excluded. A container's span includes the markers of the containers inside it, and its lazy continuation lines; a
-fenced code block's includes its closing fence; a setext heading's its underline. The root spans the whole source.
+character: a paragraph, an indented code block) to the last byte of its last line that is not blank once the markers
+of the containers around it are consumed (a `>` alone on a line of a block quote does not extend a list inside the
+quote), endings excluded. A list ends where its last item ends. A container's span includes the markers of the
+containers inside it, and its lazy continuation lines; a fenced code block's includes its closing fence; a setext
+heading's its underline. The root spans the whole source.
 
 ```text
 > quoted          block quote: "> quoted\n> more"

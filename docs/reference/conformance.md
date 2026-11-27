@@ -87,10 +87,10 @@ loads the Markdown (`load_file`), parses it (`markdown_options%parse`, no extens
 that cannot be read, parsed or written is reported on standard error and gets no output, so it fails. A suite with
 extensions passes `--extension NAME` for each.
 
-The HTML comes from a single procedure of the driver, `render_html`. The library's renderer arrives with plan step
-1.6; until then `render_html` calls a minimal serialiser of the block tree that lives with the driver and is test code,
-not API (`src/tests/spec/baruch_spec_html.F90`): the blocks as cmark writes them, the inline content of paragraphs and
-headings as HTML-escaped text. Step 1.6 replaces it with the public renderer.
+The HTML is the library's: the driver writes each example with `markdown_options%render_html_file` (an HTML fragment,
+as the spec's examples are), so the suite checks the public renderer ([HTML](/reference/html)) and nothing else. Until
+step 1.6 the driver carried a test-only block serialiser of its own; the counts were unchanged when the renderer
+replaced it.
 
 The driver lives in `src/tests/spec/`, so the test modes build it into `exe/` with every compiler; run with no
 argument it does nothing and exits 0, and `scripts/run_tests.sh` (which runs every program of `exe/` that way) counts
@@ -172,6 +172,7 @@ decreases from one step to the next (a standing gate of the plan).
 |---|---|---|---|
 | 1.4 | 1 | 0 | no renderer yet: the empty output matches example 207 only |
 | 1.5 | 342 | 237 | the block parser, through the driver's test-only block serialiser; the same counts with every compiler and mode |
+| 1.6 | 342 | 237 | the public HTML renderer (`render_html_file`) in place of the serialiser; the same counts with gfortran, nvfortran and ifx, debug modes included |
 
 At 1.5 every failing example fails on inline syntax only (emphasis, code spans, links and their resolution,
 backslash escapes, character references, raw inline HTML, hard line breaks): the block structure of all 652 examples

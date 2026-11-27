@@ -1,0 +1,28 @@
+$ t04_render
+<h1>Field report</h1>
+<p>Measured on the *rig* yesterday;
+the values are below.</p>
+<h2>Results</h2>
+<ol>
+<li>pressure</li>
+<li>temperature
+<ul>
+<li>inlet</li>
+<li>outlet</li>
+</ul>
+</li>
+</ol>
+<pre><code class="language-fortran">print *, 'p = ', p
+</code></pre>
+<blockquote>
+<p>Calibrated against the
+reference probe.</p>
+</blockquote>
+<hr />
+<!-- written by the rig -->
+
+report.html written, stat 0
+
+heading 1 at bytes 1-16: "Field report"
+heading 2 at bytes 75-89: "Results"
+blocks entered 20, left 20, texts 8

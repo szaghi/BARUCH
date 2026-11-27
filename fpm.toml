@@ -54,3 +54,13 @@ main = "baruch_test_extension_contract.F90"
 name = "baruch_test_blocks"
 source-dir = "src/tests"
 main = "baruch_test_blocks.F90"
+
+[[test]]
+name = "baruch_test_html"
+source-dir = "src/tests"
+main = "baruch_test_html.F90"
+
+[[test]]
+name = "baruch_test_walk"
+source-dir = "src/tests"
+main = "baruch_test_walk.F90"

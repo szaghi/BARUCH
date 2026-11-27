@@ -1,9 +1,16 @@
 !run hello hello
 program hello
-!< The smallest BARUCH client: it uses the library, links its archive and says so. Replaced by a real document in
-!< the first chapters of the tutorial, once the reader exists.
+!< Quick start: a Markdown text read into a document and written back as HTML.
 use baruch
 implicit none
+type(markdown_document)   :: doc     ! the document: its source and its tree
+type(markdown_options)    :: options ! what a parse does: here CommonMark alone
+character(:), allocatable :: html    ! the HTML
 
-print '(A)', 'BARUCH: Bidirectional AST Reader and Unparser for CommonMark, Hookable'
+call doc%load('# Hello, BARUCH'//new_line('a')//new_line('a')// &
+              'A Markdown reader in pure Fortran:'//new_line('a')//new_line('a')// &
+              '- blocks parsed'//new_line('a')//'- HTML written'//new_line('a'))
+call options%parse(doc)
+call options%render_html(doc, html)
+write(*, '(A)', advance='no') html
 endprogram hello

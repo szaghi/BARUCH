@@ -21,8 +21,9 @@ module baruch_extension
 !< parse keeps its state in the document, never in the extension, so one options object can serve parses running at
 !< the same time.
 !<
-!< The hooks are called by the block parser (`baruch_blocks`) as of plan step 1.3; the inline hooks and
-!< `post_process` by the inline parser (step 2.5), the output hooks by the renderers and the writer (steps 1.6, 3.2).
+!< The block hooks are called by the block parser (`baruch_blocks`), `write_html` by the HTML renderer (`baruch_html`)
+!< and `walk_event` by the walk (`baruch_walk`); the inline hooks and `post_process` by the inline parser (step 2.5),
+!< `write_markdown` by the writer (step 3.2).
 !<
 !< `extension_slot` (a polymorphic extension and its enabled flag) is how `markdown_options` holds the extensions; it is
 !< not exported by `baruch`.
@@ -319,10 +320,14 @@ contains
    endassociate
    endsubroutine post_process
 
-   ! output (called from plan steps 1.6 and 3.2)
+   ! output (write_markdown: called from plan step 3.2)
    subroutine write_html(self, doc, node, entering, html, handled, stat, errmsg)
-   !< Write a node as HTML, on entering it and on leaving it (after its children); a node that is not the
-   !< extension's: `handled = .false.`. Default: not mine (the renderer writes the node its own way).
+   !< Write a node as HTML, on entering it (or reaching it, for a text) and on leaving it (after its children); a node
+   !< the extension does not write: `handled = .false.`. The renderer offers every event of every node, core kinds
+   !< too, to the enabled extensions in registration order; the first that handles it writes `html` (its own line
+   !< feeds included) and the core writes nothing for that event. A nonzero `stat` stops the render. Default: not
+   !< mine (the renderer writes the node its own way; an extension node no extension writes is rendered
+   !< transparently: its children, or its literal escaped).
    class(markdown_extension), intent(in)    :: self     !< Extension.
    type(markdown_document),   intent(in)    :: doc      !< Document.
    integer(I4P),              intent(in)    :: node     !< Node.
@@ -339,9 +344,11 @@ contains
    endsubroutine write_html
 
    subroutine walk_event(self, doc, node, entering, event, handled)
-   !< Say which walk event a node of the extension is reported as (the event codes come with the walk, plan step 1.6);
-   !< a node that is not the extension's: `handled = .false.`. Default: not mine (the walk reports a block or a span
-   !< of the node's own kind).
+   !< Say which walk event (`EVENT_*` of `baruch_walk`) a node of the extension is reported as: entering it,
+   !< `EVENT_ENTER_BLOCK`, `EVENT_ENTER_SPAN` or `EVENT_TEXT` (a text has no children visited and is never left);
+   !< leaving it, the matching `EVENT_LEAVE_BLOCK` or `EVENT_LEAVE_SPAN`. Any other answer is a contract violation
+   !< (`BARUCH_ERR_CONTRACT`). Only extension kinds are offered; a node that is not the extension's:
+   !< `handled = .false.`. Default: not mine (the walk reports a block or a span, as the kind was registered).
    class(markdown_extension), intent(in)  :: self     !< Extension.
    type(markdown_document),   intent(in)  :: doc      !< Document.
    integer(I4P),              intent(in)  :: node     !< Node.

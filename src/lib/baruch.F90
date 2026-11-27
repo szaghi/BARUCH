@@ -6,9 +6,10 @@ module baruch
 !< pool, and the sanitised source it is loaded from with its line index), the options (`markdown_options`: the
 !< extensions registered and enabled, and `parse`), the extension interface (`markdown_extension`, its hooks, and
 !< the `BLOCK_*`, `CONTENT_*` values they answer with), the node kinds with the slot layout and style values
-!< (`NODE_*`, `SLOT_*`, `STRING_*`, ...), and the status codes (`BARUCH_OK`, `BARUCH_ERR_*`). `markdown_options%parse`
-!< builds the CommonMark block structure (`baruch_blocks`); the inline parser, the renderer and the writers are added
-!< behind this module, step by step.
+!< (`NODE_*`, `SLOT_*`, `STRING_*`, ...), the walk's events (`EVENT_*`), and the status codes (`BARUCH_OK`,
+!< `BARUCH_ERR_*`). `markdown_options%parse` builds the CommonMark block structure (`baruch_blocks`),
+!< `markdown_options%render_html` writes a tree as HTML (`baruch_html`), `markdown_options%walk` reads it as events
+!< (`baruch_walk`); the inline parser and the writers are added behind this module, step by step.
 !<
 !< Kinds come from PENF and text from StringiFor, used here so that the library archive holds them; neither is
 !< re-exported, a client uses them directly.
@@ -34,6 +35,8 @@ use baruch_kinds_nodes, only : NODE_NONE,                                       
                                STRING_LITERAL, STRING_INFO, STRING_DESTINATION, STRING_TITLE, STRING_LABEL,        &
                                HEADING_ATX, HEADING_SETEXT, LIST_BULLET, LIST_ORDERED, CODE_INDENTED, CODE_FENCED, &
                                LINK_INLINE, LINK_FULL, LINK_COLLAPSED, LINK_SHORTCUT, LINK_AUTOLINK
+use baruch_walk,        only : EVENT_NONE, EVENT_ENTER_BLOCK, EVENT_LEAVE_BLOCK, EVENT_ENTER_SPAN, EVENT_LEAVE_SPAN, &
+                               EVENT_TEXT
 use baruch_status,      only : BARUCH_OK, BARUCH_ERR_ARGUMENT, BARUCH_ERR_NODE, BARUCH_ERR_KIND, BARUCH_ERR_LINK, &
                                BARUCH_ERR_ALLOCATION, BARUCH_ERR_IO, BARUCH_ERR_CONTRACT
 implicit none
@@ -62,6 +65,8 @@ public :: SLOT_BREAK_CHAR, SLOT_EMPHASIS_CHAR, SLOT_LINK_FORM
 public :: STRING_LITERAL, STRING_INFO, STRING_DESTINATION, STRING_TITLE, STRING_LABEL
 public :: HEADING_ATX, HEADING_SETEXT, LIST_BULLET, LIST_ORDERED, CODE_INDENTED, CODE_FENCED
 public :: LINK_INLINE, LINK_FULL, LINK_COLLAPSED, LINK_SHORTCUT, LINK_AUTOLINK
+! walk events
+public :: EVENT_NONE, EVENT_ENTER_BLOCK, EVENT_LEAVE_BLOCK, EVENT_ENTER_SPAN, EVENT_LEAVE_SPAN, EVENT_TEXT
 ! status codes
 public :: BARUCH_OK, BARUCH_ERR_ARGUMENT, BARUCH_ERR_NODE, BARUCH_ERR_KIND, BARUCH_ERR_LINK, BARUCH_ERR_ALLOCATION
 public :: BARUCH_ERR_IO, BARUCH_ERR_CONTRACT

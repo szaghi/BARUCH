@@ -9,6 +9,9 @@
 #   docs/examples/snippets/    generated: <program>.f90 without the markers, and <program>-<region>.f90 (dedented)
 #   docs/examples/output/      generated: <ID>.ansi, "$ COMMAND" then its output (standard output and error), the
 #                              scratch run directory shown as /home/user
+#   README.md                  the blocks between `<!-- generated: FILE LANG -->` and `<!-- /generated -->` rewritten
+#                              as a fenced LANG block holding FILE (a path from the root: the quick start is
+#                              docs/examples/snippets/hello.f90 and its run docs/examples/output/hello.ansi)
 #
 # The library is built by FoBiS (mode static-gnu: BARUCH and the sources of its dependencies, fetched into
 # src/third_party, in one archive) and every example is compiled against it exactly as a user program would be:
@@ -79,4 +82,19 @@ for src in "$ex"/src/*.f90; do
     else run "${line%% *}" "${line#* }"; fi
   done < <(grep -E '^ *!run ' "$src" || true)
 done
+# the README's generated blocks: what the README shows is what the examples are
+readme=$root/README.md
+awk -v root="$root" '
+  /^<!-- \/generated -->/ {skip = 0}
+  skip {next}
+  {print}
+  /^<!-- generated: / {
+    file = $3; lang = $4
+    print "```" lang
+    while ((getline line < (root "/" file)) > 0) print line
+    close(root "/" file)
+    print "```"
+    skip = 1
+  }' "$readme" > "$build/README.md"
+cp "$build/README.md" "$readme"
 echo "docs_examples: $(ls "$ex"/src/*.f90 | wc -l) programs, $(ls "$ex"/output/*.ansi | wc -l) runs"

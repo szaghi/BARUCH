@@ -1,0 +1,31 @@
+$ cat report.html
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Field report</title>
+</head>
+<body>
+<h1>Field report</h1>
+<p>Measured on the *rig* yesterday;
+the values are below.</p>
+<h2>Results</h2>
+<ol>
+<li>pressure</li>
+<li>temperature
+<ul>
+<li>inlet</li>
+<li>outlet</li>
+</ul>
+</li>
+</ol>
+<pre><code class="language-fortran">print *, 'p = ', p
+</code></pre>
+<blockquote>
+<p>Calibrated against the
+reference probe.</p>
+</blockquote>
+<hr />
+<!-- written by the rig -->
+</body>
+</html>

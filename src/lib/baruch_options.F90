@@ -10,11 +10,19 @@ module baruch_options
 !< `parse` reads the document's source (loaded by `markdown_document%load` or `load_file`) into its tree: the tree is
 !< reset to its root, the enabled extensions register their kinds in the document, the block parser runs
 !< (`baruch_blocks`: the CommonMark block structure, the extensions' block hooks tried before the core's starts).
-!< The encoding, the line ending and the canonical output of the writer join the options in later steps.
+!<
+!< The options also read a parsed tree back, because what an extension's node looks like from outside is its
+!< extension's to say: `render_html` (`baruch_html`: the HTML, a fragment or a standalone page, into a `character`, a
+!< StringiFor `string` or an open unit; `render_html_file` into a file) asks the enabled extensions' `write_html` hooks,
+!< and `walk` (`baruch_walk`: one event per call, the caller holding the state) their `walk_event` hooks. The line
+!< ending and the canonical output of the writer join the options in later steps.
 use penf,             only : I4P
+use stringifor,       only : string
 use baruch_document,  only : markdown_document
 use baruch_extension, only : markdown_extension, extension_slot
 use baruch_blocks,    only : parse_blocks
+use baruch_html,      only : render_html_document
+use baruch_walk,      only : walk_step
 use baruch_status
 implicit none
 private
@@ -37,6 +45,12 @@ type :: markdown_options
       procedure, pass(self) :: extension_name     !< Return the name of the i-th registered extension.
       procedure, pass(self) :: register_kinds     !< Register the kinds of the enabled extensions in a document.
       procedure, pass(self) :: parse              !< Parse a document's source into its tree.
+      generic               :: render_html => render_html_character, render_html_string, render_html_unit !< As HTML.
+      procedure, pass(self) :: render_html_file   !< Render a document as HTML into a file.
+      procedure, pass(self) :: walk               !< Advance a walk of a document's tree by one event.
+      procedure, pass(self), private :: render_html_character !< Render as HTML into a `character`.
+      procedure, pass(self), private :: render_html_string    !< Render as HTML into a `string`.
+      procedure, pass(self), private :: render_html_unit      !< Render as HTML into an open unit.
       procedure, pass(self), private :: find      !< Return the slot of an extension by name, 0 if none.
       procedure, pass(self), private :: set_state !< Enable or disable an extension by name.
 endtype markdown_options
@@ -204,6 +218,162 @@ contains
    endif
    endsubroutine parse
 
+   subroutine render_html_character(self, doc, html, standalone, title, stat, errmsg)
+   !< Render a document as HTML, with the enabled extensions: an HTML fragment (default) or, with `standalone =
+   !< .true.`, a whole HTML5 document titled `title` (default: the first heading's text). A nonzero `stat` comes from an
+   !< extension (a `write_html` hook failing, a `walk_event` answer breaking the contract); `html` then holds what was
+   !< rendered before it.
+   class(markdown_options),   intent(in)            :: self       !< Options.
+   type(markdown_document),   intent(in)            :: doc        !< Document.
+   character(:), allocatable, intent(out)           :: html       !< HTML.
+   logical,                   intent(in),  optional :: standalone !< A whole HTML document (default: a fragment).
+   character(*),              intent(in),  optional :: title      !< Title of a standalone document.
+   integer(I4P),              intent(out), optional :: stat       !< Status.
+   character(:), allocatable, intent(out), optional :: errmsg     !< Message.
+   integer(I4P)                                     :: ierr       !< Status.
+   character(:), allocatable                        :: msg        !< Message.
+   type(extension_slot)                             :: empty(0)   !< No extension.
+   logical                                          :: alone      !< Standalone.
+   character(:), allocatable                        :: heading    !< Title.
+
+   alone = .false.
+   if (present(standalone)) alone = standalone
+   heading = ''
+   if (present(title)) heading = title
+   msg = ''
+   if (self%slots_used > 0_I4P) then
+      call render_html_document(doc, self%slots_(1:self%slots_used), html, alone, heading, ierr, msg)
+   else
+      call render_html_document(doc, empty, html, alone, heading, ierr, msg)
+   endif
+   if (ierr /= BARUCH_OK) then
+      call status_error(ierr, msg, stat, errmsg)
+   else
+      call status_ok(stat, errmsg)
+   endif
+   endsubroutine render_html_character
+
+   subroutine render_html_string(self, doc, html, standalone, title, stat, errmsg)
+   !< Render a document as HTML into a StringiFor `string`; as the `character` form.
+   class(markdown_options),   intent(in)            :: self       !< Options.
+   type(markdown_document),   intent(in)            :: doc        !< Document.
+   type(string),              intent(out)           :: html       !< HTML.
+   logical,                   intent(in),  optional :: standalone !< A whole HTML document (default: a fragment).
+   character(*),              intent(in),  optional :: title      !< Title of a standalone document.
+   integer(I4P),              intent(out), optional :: stat       !< Status.
+   character(:), allocatable, intent(out), optional :: errmsg     !< Message.
+   character(:), allocatable                        :: text       !< HTML.
+
+   call self%render_html_character(doc, text, standalone=standalone, title=title, stat=stat, errmsg=errmsg)
+   html = text
+   endsubroutine render_html_string
+
+   subroutine render_html_unit(self, doc, unit, standalone, title, stat, errmsg)
+   !< Render a document as HTML into a unit the caller opened for writing: a formatted unit gets one record per line
+   !< (the last one left open when the HTML does not end with a line feed), an unformatted stream unit the bytes. A
+   !< unit not open, open for reading only, or unformatted but not stream gives `BARUCH_ERR_IO`, a failed write too.
+   class(markdown_options),   intent(in)            :: self       !< Options.
+   type(markdown_document),   intent(in)            :: doc        !< Document.
+   integer,                   intent(in)            :: unit       !< Unit, open for writing.
+   logical,                   intent(in),  optional :: standalone !< A whole HTML document (default: a fragment).
+   character(*),              intent(in),  optional :: title      !< Title of a standalone document.
+   integer(I4P),              intent(out), optional :: stat       !< Status.
+   character(:), allocatable, intent(out), optional :: errmsg     !< Message.
+   character(:), allocatable                        :: html       !< HTML.
+   integer(I4P)                                     :: ierr       !< Status.
+   character(:), allocatable                        :: msg        !< Message.
+
+   call self%render_html_character(doc, html, standalone=standalone, title=title, stat=ierr, errmsg=msg)
+   if (ierr == BARUCH_OK) call write_unit(unit, html, 'markdown_options%render_html', ierr, msg)
+   if (ierr /= BARUCH_OK) then
+      call status_error(ierr, msg, stat, errmsg)
+   else
+      call status_ok(stat, errmsg)
+   endif
+   endsubroutine render_html_unit
+
+   subroutine render_html_file(self, doc, path, standalone, title, stat, errmsg)
+   !< Render a document as HTML into a file, created or replaced, byte for byte (stream access). A file that cannot be
+   !< opened or written gives `BARUCH_ERR_IO` with the processor's message.
+   class(markdown_options),   intent(in)            :: self       !< Options.
+   type(markdown_document),   intent(in)            :: doc        !< Document.
+   character(*),              intent(in)            :: path       !< File.
+   logical,                   intent(in),  optional :: standalone !< A whole HTML document (default: a fragment).
+   character(*),              intent(in),  optional :: title      !< Title of a standalone document.
+   integer(I4P),              intent(out), optional :: stat       !< Status.
+   character(:), allocatable, intent(out), optional :: errmsg     !< Message.
+   character(:), allocatable                        :: html       !< HTML.
+   integer(I4P)                                     :: ierr       !< Status.
+   character(:), allocatable                        :: msg        !< Message.
+   character(512)                                   :: iomsg      !< I/O message.
+   integer                                          :: u          !< Unit.
+   integer                                          :: ios        !< I/O status.
+
+   call self%render_html_character(doc, html, standalone=standalone, title=title, stat=ierr, errmsg=msg)
+   if (ierr == BARUCH_OK) then
+      iomsg = ''
+      open(newunit=u, file=path, access='stream', form='unformatted', action='write', status='replace', iostat=ios, &
+           iomsg=iomsg)
+      if (ios == 0) then
+         write(u, iostat=ios, iomsg=iomsg) html
+         close(u)
+      endif
+      if (ios /= 0) then
+         ierr = BARUCH_ERR_IO
+         msg = 'markdown_options%render_html_file: cannot write "'//path//'": '//trim(iomsg)
+      endif
+   endif
+   if (ierr /= BARUCH_OK) then
+      call status_error(ierr, msg, stat, errmsg)
+   else
+      call status_ok(stat, errmsg)
+   endif
+   endsubroutine render_html_file
+
+   subroutine walk(self, doc, node, event, top, first, last, stat, errmsg)
+   !< Advance a walk of a document's tree by one event. The caller holds the walk's state, `node` and `event`: it
+   !< starts with `node = 0`, and each call replaces them with the next event (`EVENT_ENTER_BLOCK`, `EVENT_LEAVE_BLOCK`,
+   !< `EVENT_ENTER_SPAN`, `EVENT_LEAVE_SPAN`, `EVENT_TEXT`) and its node, until `node = 0` (and `event = EVENT_NONE`):
+   !< the walk is over. `top` walks the subtree of a node only (default: the root); `first` and `last` return the
+   !< node's byte span in the source. An extension node's events are what its extension's `walk_event` hook answers.
+   !< A misuse (a current node or event that is not one, `top` not a live node: `BARUCH_ERR_ARGUMENT`,
+   !< `BARUCH_ERR_NODE`) or a hook answer that is not an event of the right direction (`BARUCH_ERR_CONTRACT`) ends the
+   !< walk with `node = 0`.
+   class(markdown_options),   intent(in)            :: self     !< Options.
+   type(markdown_document),   intent(in)            :: doc      !< Document.
+   integer(I4P),              intent(inout)         :: node     !< Current node (0: start), then the next one.
+   integer(I4P),              intent(inout)         :: event    !< Current event, then the next one.
+   integer(I4P),              intent(in),  optional :: top      !< Root of the walked subtree (default: the root).
+   integer(I4P),              intent(out), optional :: first    !< First byte of the node's span (0 when done).
+   integer(I4P),              intent(out), optional :: last     !< Last byte of the node's span (0 when done).
+   integer(I4P),              intent(out), optional :: stat     !< Status.
+   character(:), allocatable, intent(out), optional :: errmsg   !< Message.
+   integer(I4P)                                     :: ierr     !< Status.
+   character(:), allocatable                        :: msg      !< Message.
+   type(extension_slot)                             :: empty(0) !< No extension.
+   integer(I4P)                                     :: t        !< Top.
+
+   t = 1_I4P
+   if (present(top)) t = top
+   msg = ''
+   if (self%slots_used > 0_I4P) then
+      call walk_step(doc, self%slots_(1:self%slots_used), t, node, event, ierr, msg)
+   else
+      call walk_step(doc, empty, t, node, event, ierr, msg)
+   endif
+   if (present(first)) first = 0_I4P
+   if (present(last)) last = 0_I4P
+   if (node /= 0_I4P) then
+      if (present(first)) first = doc%span_first(node)
+      if (present(last)) last = doc%span_last(node)
+   endif
+   if (ierr /= BARUCH_OK) then
+      call status_error(ierr, msg, stat, errmsg)
+   else
+      call status_ok(stat, errmsg)
+   endif
+   endsubroutine walk
+
    ! private
    function find(self, name) result(s)
    !< Return the slot of an extension by name, 0 if none.
@@ -236,6 +406,68 @@ contains
    self%slots_(s)%enabled = enabled
    call status_ok(stat, errmsg)
    endsubroutine set_state
+
+   subroutine write_unit(unit, text, proc, ierr, msg)
+   !< Write a text to a unit open for writing: line by line to a formatted unit, the bytes to an unformatted stream.
+   integer,                   intent(in)    :: unit  !< Unit.
+   character(*),              intent(in)    :: text  !< Text.
+   character(*),              intent(in)    :: proc  !< Name of the calling procedure.
+   integer(I4P),              intent(out)   :: ierr  !< Status.
+   character(:), allocatable, intent(inout) :: msg   !< Message.
+   character(512)                           :: iomsg !< I/O message.
+   character(16)                            :: form  !< Its form.
+   character(16)                            :: acc   !< Its access.
+   character(16)                            :: act   !< Its action.
+   logical                                  :: open_ !< It is open.
+   integer                                  :: ios   !< I/O status.
+   integer                                  :: i, j  !< Bounds of a line.
+
+   ierr = BARUCH_OK
+   iomsg = ''
+   inquire(unit=unit, opened=open_, form=form, access=acc, action=act, iostat=ios, iomsg=iomsg)
+   if (ios /= 0) then
+      call fail('cannot inquire unit '//istr(int(unit, I4P))//': '//trim(iomsg))
+      return
+   endif
+   if (.not. open_) then
+      call fail('unit '//istr(int(unit, I4P))//' is not open')
+      return
+   endif
+   if (trim(act) == 'READ') then
+      call fail('unit '//istr(int(unit, I4P))//' is open for reading only')
+      return
+   endif
+   if (trim(form) == 'UNFORMATTED') then
+      if (trim(acc) /= 'STREAM') then
+         call fail('unit '//istr(int(unit, I4P))//' is unformatted but not stream: it cannot take text')
+         return
+      endif
+      write(unit, iostat=ios, iomsg=iomsg) text
+   else
+      i = 1
+      ios = 0
+      do while (i <= len(text) .and. ios == 0)
+         j = index(text(i:), achar(10))
+         if (j > 0) then
+            write(unit, '(A)', iostat=ios, iomsg=iomsg) text(i:i+j-2)
+            i = i + j
+         else
+            write(unit, '(A)', advance='no', iostat=ios, iomsg=iomsg) text(i:)
+            i = len(text) + 1
+         endif
+      enddo
+   endif
+   if (ios /= 0) call fail('cannot write to unit '//istr(int(unit, I4P))//': '//trim(iomsg))
+
+   contains
+      subroutine fail(what)
+      !< Set the status to an I/O failure.
+      character(*), intent(in) :: what !< What failed.
+
+      ierr = BARUCH_ERR_IO
+      msg = proc//': '//what
+      endsubroutine fail
+   endsubroutine write_unit
 
    pure function istr(i) result(s)
    !< Return an integer as text.

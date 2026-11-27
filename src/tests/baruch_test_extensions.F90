@@ -9,19 +9,29 @@ module baruch_test_extensions
 !< - `caption_extension` ("caption"): a line `^^^` under a paragraph turns the paragraph's last line into a `caption`
 !<   (kind 1003), a one-line leaf: the block-start hook reads the open paragraph's lines;
 !< - `broken_extension` (`mode` 1 to 6): each mode breaks the hook contract one way;
-!< - `clash_extension` ("clash"): registers kind 1001 under another name.
+!< - `clash_extension` ("clash"): registers kind 1001 under another name;
+!< - `math_extension` ("math"): an inline kind `math` (1005), never parsed (no inline hooks before step 2.5), built by
+!<   hand: the walk reports it as a text, the HTML is `<span class="math">` around its literal; `mode` 1 breaks the
+!<   `walk_event` contract (an event that is not one), mode 2 makes `write_html` fail;
+!< - `rule_extension` ("rule"): writes the core's thematic breaks as `<hr class="rule" />`.
+!<
+!< The note writes itself as HTML (`<aside class="note">`); the percent block has no `write_html`, so the renderer's
+!< default for an extension node applies to it.
 use penf,   only : I4P
 use baruch, only : markdown_document, markdown_extension, BARUCH_OK, BARUCH_ERR_ARGUMENT, NODE_PARAGRAPH, &
-                   BLOCK_UNMATCHED, BLOCK_MATCHED, CONTENT_NONE, CONTENT_BLOCKS, CONTENT_LINES
+                   NODE_THEMATIC_BREAK, BLOCK_UNMATCHED, BLOCK_MATCHED, CONTENT_NONE, CONTENT_BLOCKS, CONTENT_LINES, &
+                   EVENT_TEXT
 implicit none
 private
-public :: percent_extension, note_extension, caption_extension, broken_extension, clash_extension
-public :: KIND_PERCENT, KIND_NOTE, KIND_CAPTION, KIND_BROKEN
+public :: percent_extension, note_extension, caption_extension, broken_extension, clash_extension, math_extension
+public :: rule_extension
+public :: KIND_PERCENT, KIND_NOTE, KIND_CAPTION, KIND_BROKEN, KIND_MATH
 
 integer(I4P), parameter :: KIND_PERCENT = 1001_I4P !< `%%` block.
 integer(I4P), parameter :: KIND_NOTE    = 1002_I4P !< `!>` note.
 integer(I4P), parameter :: KIND_CAPTION = 1003_I4P !< `^^^` caption.
 integer(I4P), parameter :: KIND_BROKEN  = 1004_I4P !< Blocks of the broken extension.
+integer(I4P), parameter :: KIND_MATH    = 1005_I4P !< Inline math, built by hand.
 character,    parameter :: LF = achar(10)          !< Line feed.
 
 type, extends(markdown_extension) :: percent_extension
@@ -45,6 +55,7 @@ type, extends(markdown_extension) :: note_extension
       procedure, pass(self) :: block_continue => note_block_continue
       procedure, pass(self) :: block_content  => note_block_content
       procedure, pass(self) :: can_contain    => note_can_contain
+      procedure, pass(self) :: write_html     => note_write_html
       procedure, pass(self) :: write_markdown => note_write_markdown
 endtype note_extension
 
@@ -78,6 +89,25 @@ type, extends(markdown_extension) :: clash_extension
       procedure, pass(self) :: register_kinds => clash_register_kinds
       procedure, pass(self) :: write_markdown => clash_write_markdown
 endtype clash_extension
+
+type, extends(markdown_extension) :: math_extension
+   !< Inline math, built by hand: a text for the walk, a span of class math in HTML.
+   integer(I4P) :: mode = 0_I4P !< 0 well behaved, 1 a walk event that is not one, 2 `write_html` fails.
+   contains
+      procedure, pass(self) :: name           => math_name
+      procedure, pass(self) :: register_kinds => math_register_kinds
+      procedure, pass(self) :: write_html     => math_write_html
+      procedure, pass(self) :: write_markdown => math_write_markdown
+      procedure, pass(self) :: walk_event     => math_walk_event
+endtype math_extension
+
+type, extends(markdown_extension) :: rule_extension
+   !< Thematic breaks (a core kind) written its own way.
+   contains
+      procedure, pass(self) :: name           => rule_name
+      procedure, pass(self) :: write_html     => rule_write_html
+      procedure, pass(self) :: write_markdown => rule_write_markdown
+endtype rule_extension
 
 contains
    ! helpers
@@ -337,6 +367,23 @@ contains
    handled = doc%node_kind(node) == KIND_NOTE
    endsubroutine note_write_markdown
 
+   subroutine note_write_html(self, doc, node, entering, html, handled, stat, errmsg)
+   class(note_extension),     intent(in)    :: self     !< Extension.
+   type(markdown_document),   intent(in)    :: doc      !< Document.
+   integer(I4P),              intent(in)    :: node     !< Node.
+   logical,                   intent(in)    :: entering !< Entering.
+   character(:), allocatable, intent(out)   :: html     !< HTML.
+   logical,                   intent(out)   :: handled  !< Mine.
+   integer(I4P),              intent(inout) :: stat     !< Status.
+   character(:), allocatable, intent(inout) :: errmsg   !< Message.
+   handled = doc%node_kind(node) == KIND_NOTE
+   if (entering) then
+      html = '<aside class="note">'//LF
+   else
+      html = '</aside>'//LF
+   endif
+   endsubroutine note_write_html
+
    ! caption
    function caption_name(self) result(name)
    class(caption_extension), intent(in) :: self !< Extension.
@@ -530,4 +577,98 @@ contains
    markdown = ''
    handled = .false.
    endsubroutine clash_write_markdown
+
+   ! math
+   function math_name(self) result(name)
+   class(math_extension), intent(in) :: self !< Extension.
+   character(:), allocatable         :: name !< Name.
+   name = 'math'
+   endfunction math_name
+
+   subroutine math_register_kinds(self, doc, stat, errmsg)
+   class(math_extension),     intent(in)    :: self   !< Extension.
+   type(markdown_document),   intent(inout) :: doc    !< Document.
+   integer(I4P),              intent(inout) :: stat   !< Status.
+   character(:), allocatable, intent(inout) :: errmsg !< Message.
+   call doc%register_kind(KIND_MATH, 'math', inline=.true., stat=stat, errmsg=errmsg)
+   endsubroutine math_register_kinds
+
+   subroutine math_write_html(self, doc, node, entering, html, handled, stat, errmsg)
+   class(math_extension),     intent(in)    :: self     !< Extension.
+   type(markdown_document),   intent(in)    :: doc      !< Document.
+   integer(I4P),              intent(in)    :: node     !< Node.
+   logical,                   intent(in)    :: entering !< Entering.
+   character(:), allocatable, intent(out)   :: html     !< HTML.
+   logical,                   intent(out)   :: handled  !< Mine.
+   integer(I4P),              intent(inout) :: stat     !< Status.
+   character(:), allocatable, intent(inout) :: errmsg   !< Message.
+   handled = doc%node_kind(node) == KIND_MATH
+   if (.not. handled) return
+   if (self%mode == 2_I4P) then
+      stat = BARUCH_ERR_ARGUMENT
+      errmsg = 'math: asked to fail'
+      return
+   endif
+   if (entering) html = '<span class="math">'//doc%literal(node)//'</span>'
+   endsubroutine math_write_html
+
+   subroutine math_write_markdown(self, doc, node, entering, markdown, handled, stat, errmsg)
+   class(math_extension),     intent(in)    :: self     !< Extension.
+   type(markdown_document),   intent(in)    :: doc      !< Document.
+   integer(I4P),              intent(in)    :: node     !< Node.
+   logical,                   intent(in)    :: entering !< Entering.
+   character(:), allocatable, intent(out)   :: markdown !< Markdown.
+   logical,                   intent(out)   :: handled  !< Mine.
+   integer(I4P),              intent(inout) :: stat     !< Status.
+   character(:), allocatable, intent(inout) :: errmsg   !< Message.
+   markdown = ''
+   handled = doc%node_kind(node) == KIND_MATH
+   if (handled .and. entering) markdown = '$'//doc%literal(node)//'$'
+   endsubroutine math_write_markdown
+
+   subroutine math_walk_event(self, doc, node, entering, event, handled)
+   class(math_extension),   intent(in)  :: self     !< Extension.
+   type(markdown_document), intent(in)  :: doc      !< Document.
+   integer(I4P),            intent(in)  :: node     !< Node.
+   logical,                 intent(in)  :: entering !< Entering.
+   integer(I4P),            intent(out) :: event    !< Event.
+   logical,                 intent(out) :: handled  !< Mine.
+   event = EVENT_TEXT
+   if (self%mode == 1_I4P) event = 99_I4P
+   handled = doc%node_kind(node) == KIND_MATH .and. entering
+   endsubroutine math_walk_event
+
+   ! rule
+   function rule_name(self) result(name)
+   class(rule_extension), intent(in) :: self !< Extension.
+   character(:), allocatable         :: name !< Name.
+   name = 'rule'
+   endfunction rule_name
+
+   subroutine rule_write_html(self, doc, node, entering, html, handled, stat, errmsg)
+   class(rule_extension),     intent(in)    :: self     !< Extension.
+   type(markdown_document),   intent(in)    :: doc      !< Document.
+   integer(I4P),              intent(in)    :: node     !< Node.
+   logical,                   intent(in)    :: entering !< Entering.
+   character(:), allocatable, intent(out)   :: html     !< HTML.
+   logical,                   intent(out)   :: handled  !< Mine.
+   integer(I4P),              intent(inout) :: stat     !< Status.
+   character(:), allocatable, intent(inout) :: errmsg   !< Message.
+   handled = doc%node_kind(node) == NODE_THEMATIC_BREAK
+   html = ''
+   if (handled .and. entering) html = '<hr class="rule" />'//LF
+   endsubroutine rule_write_html
+
+   subroutine rule_write_markdown(self, doc, node, entering, markdown, handled, stat, errmsg)
+   class(rule_extension),     intent(in)    :: self     !< Extension.
+   type(markdown_document),   intent(in)    :: doc      !< Document.
+   integer(I4P),              intent(in)    :: node     !< Node.
+   logical,                   intent(in)    :: entering !< Entering.
+   character(:), allocatable, intent(out)   :: markdown !< Markdown.
+   logical,                   intent(out)   :: handled  !< Mine.
+   integer(I4P),              intent(inout) :: stat     !< Status.
+   character(:), allocatable, intent(inout) :: errmsg   !< Message.
+   markdown = ''
+   handled = .false.
+   endsubroutine rule_write_markdown
 endmodule baruch_test_extensions

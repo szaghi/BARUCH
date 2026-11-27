@@ -13,16 +13,14 @@ program baruch_spec_driver
 !< HTML. An example that cannot be read, parsed or written is reported on standard error, gets no output file (so it
 !< fails the comparison) and the driver goes on; the exit status is then 1. A misuse stops with status 2.
 !<
-!< The HTML comes from one procedure, `render_html`. The library's renderer comes with plan step 1.6; until then it
-!< calls the test-only block serialiser of `baruch_spec_html` (blocks as cmark writes them, inline content as escaped
-!< text), which step 1.6 replaces.
+!< The HTML is the library's: `markdown_options%render_html_file`, a fragment (as the spec's examples are), with the
+!< options of the parse.
 !<
 !< With no argument the driver does nothing and exits 0: it lives in `src/tests/spec/`, so the test modes build it into
 !< `exe/` with every compiler, and `scripts/run_tests.sh`, which runs every program of `exe/` with no argument, counts
 !< it as a test that builds and starts.
 use, intrinsic :: iso_fortran_env, only : error_unit
 use baruch
-use baruch_spec_html,              only : render_blocks_html
 use penf,                          only : I4P
 implicit none
 character(:), allocatable :: arg       !< A command-line argument.
@@ -91,44 +89,21 @@ endif
 
 contains
    subroutine run_example(input, output, stat, errmsg)
-   !< Load, parse and render one example; write its HTML.
+   !< Load, parse and render one example into its HTML file.
    character(*),              intent(in)  :: input   !< Markdown file.
    character(*),              intent(in)  :: output  !< HTML file.
    integer(I4P),              intent(out) :: stat    !< Status.
    character(:), allocatable, intent(out) :: errmsg  !< Message.
    type(markdown_document)                :: doc     !< Document.
    type(markdown_options)                 :: options !< Options: CommonMark, no extension.
-   character(:), allocatable              :: html    !< Rendered HTML.
-   character(256)                         :: iomsg   !< I/O message.
-   integer                                :: u       !< Unit.
-   integer                                :: ios     !< I/O status.
 
    errmsg = ''
    call doc%load_file(input, stat=stat, errmsg=errmsg)
    if (stat /= BARUCH_OK) return
    call options%parse(doc, stat=stat, errmsg=errmsg)
    if (stat /= BARUCH_OK) return
-   call render_html(doc, html)
-   open(newunit=u, file=output, access='stream', form='unformatted', action='write', status='replace', iostat=ios, &
-        iomsg=iomsg)
-   if (ios == 0) then
-      write(u, iostat=ios, iomsg=iomsg) html
-      close(u)
-   endif
-   if (ios /= 0) then
-      stat = BARUCH_ERR_IO
-      errmsg = 'cannot write '//output//': '//trim(iomsg)
-   endif
+   call options%render_html_file(doc, output, stat=stat, errmsg=errmsg)
    endsubroutine run_example
-
-   subroutine render_html(doc, html)
-   !< Render a parsed document as HTML: the one place the driver's output comes from. Until plan step 1.6 (the
-   !< library's renderer), the test-only block serialiser.
-   type(markdown_document),   intent(in)  :: doc  !< Document, parsed.
-   character(:), allocatable, intent(out) :: html !< HTML.
-
-   call render_blocks_html(doc, html)
-   endsubroutine render_html
 
    subroutine get_argument(n, arg)
    !< Return a command-line argument, of any length.

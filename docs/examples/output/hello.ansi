@@ -1,2 +1,7 @@
 $ hello
-BARUCH: Bidirectional AST Reader and Unparser for CommonMark, Hookable
+<h1>Hello, BARUCH</h1>
+<p>A Markdown reader in pure Fortran:</p>
+<ul>
+<li>blocks parsed</li>
+<li>HTML written</li>
+</ul>

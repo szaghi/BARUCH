@@ -191,7 +191,9 @@ contains
          exit
       endif
       matched = d
-      if (.not. p%line_blank) p%open_last(d) = p%ll
+      ! a block's span ends at its last line with content past the markers of its containers (the `>` of a line in a
+      ! quote is not the content of a list inside it); a list matches every line, its span ends with its last item's
+      if (.not. p%blank .and. doc%node_kind(p%open_node(d)) /= NODE_LIST) p%open_last(d) = p%ll
    enddo
    ! 2. block starts, at the deepest matched block
    cont = matched
