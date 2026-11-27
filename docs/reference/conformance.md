@@ -163,6 +163,59 @@ mode, every inline rule disabled so that inline content stays escaped text: all 
 examples left out, 9 would pass too (literal `*`, `_` or `` ` `` that open nothing, an `&` inside an HTML block, an
 HTML block inside a list item).
 
+## The HTML5 entity table
+
+CommonMark's entity references (`&ouml;`, `&ngE;`) are the named character references of HTML5, whose list WHATWG
+publishes as a JSON file. BARUCH carries it as a generated Fortran module, pinned by hash like the spec:
+
+| | |
+|---|---|
+| Source | <https://html.spec.whatwg.org/entities.json>, downloaded 2026-11-27 |
+| SHA-256 | `d741d877ac77c4194c4ad526b5b4a19aef8dfe411ab840a466891cdbb9f362e6` |
+| Names | **2,231**: 2,125 ending in `;` and 106 legacy forms without it (`&amp`, `&copy`, ...) |
+| Module | `src/lib/baruch_entities.F90`, generated, never edited |
+| Test data | `src/tests/data/entities.txt`, generated with it |
+
+```bash
+python3 -I scripts/gen_entities.py           # regenerate the module and the test data
+python3 -I scripts/gen_entities.py --check   # exit 1 if either differs from what the pinned file gives
+```
+
+The JSON itself is not committed: `scripts/gen_entities.py` downloads it once into `build/entities/` (git-ignored)
+and refuses a file whose SHA-256 is not the pinned one, as StringiFor's `gen_unicode_tables.py` does with the Unicode
+Character Database. `--check` regenerates both outputs in memory and compares them byte for byte. Before writing
+anything the generator also checks what the module relies on: every name is `&`, an ASCII letter, letters or digits,
+and an optional `;`; the `codepoints` and `characters` fields of every name agree; every legacy form has a `;` twin
+with the same value; the count is 2,231.
+
+**What is kept.** Every name the JSON lists, both forms, mapped to the UTF-8 bytes of its code points (1 to 6 bytes;
+93 names stand for two code points, `&ngE;` is U+2267 U+0338). CommonMark recognises only the names ending in `;`, and
+the inline parser (plan step 2.3) looks up `name;` only, so the 106 legacy forms never match in CommonMark; they are
+kept so that the table is the JSON one to one, and they change no result, since each has a `;` twin with the same
+value.
+
+**The module.** `baruch_entities` is internal: the inline parser uses it, `use baruch` does not export it.
+
+| Name | Kind | |
+|---|---|---|
+| `entity_lookup(name)` | pure function | the index (1 to `ENTITY_COUNT`) of a name given without `&` and with its `;` if it has one (`'amp;'`, `'ngE;'`, `'copy'`), 0 if it is not one; case-sensitive; any byte string is accepted |
+| `entity_utf8(entity)` | pure function | the UTF-8 bytes of an index, empty for 0 or an index out of range |
+| `ENTITY_COUNT`, `ENTITY_NAME_MAX`, `ENTITY_UTF8_MAX` | constants | 2,231 names, the longest 32 characters (`CounterClockwiseContourIntegral;`), the longest value 6 bytes |
+| `ENTITY_SOURCE`, `ENTITY_SHA256` | constants | the URL and the hash above |
+
+The tables are parameters: the names in byte order, blank-padded to 32 characters, and the values concatenated with
+the offset of each. `entity_lookup` rejects a string that is empty, longer than 32 characters or has a character no
+name has, then binary-searches the names (at most 12 comparisons). The names are an array rather than one string
+because ifx 2026.2 refuses a character constant longer than 7,198 characters; every array is split into chunks of at
+most 120 continuation lines, within the 255 that Fortran 2018 allows. Compiling the module alone takes 0.1 s with gfortran 16.2,
+0.35 s with nvfortran 26.9 and 0.07 s with ifx 2026.2, release or debug flags.
+
+`baruch_test_entities` reads the test data (the name as in the JSON and the UTF-8 of its `characters` field: the
+other field than the module's bytes, encoded by Python rather than by the generator), looks every name up and decodes
+it: **2,231/2,231** decode to the expected bytes, 0 differences, and every entry of the table is found exactly once.
+It also checks that strings that are not names (another case, a missing or doubled `;`, a leading or trailing blank,
+a byte above ASCII, 33 characters) are not found.
+
 ## Counts
 
 `bash scripts/spec.sh commonmark` with gfortran 16.2, nvfortran 26.9 and ifx 2026.2, step by step. The count never

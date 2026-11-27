@@ -81,7 +81,8 @@ fails or breaks the hook contract, or memory runs out.
   underline under definitions only is paragraph text, spec example 216).
 
 Entity and numeric character references (`&ouml;`, `&#42;`) in an info string, a destination or a title stay as
-written until the HTML5 entity table (plan step 2.2) and the inline step 2.3, which decodes them.
+written until the inline step 2.3, which decodes them with the
+[HTML5 entity table](/reference/conformance#the-html5-entity-table).
 
 Line endings are LF in every string, whatever the source used (CR, CRLF); the [spans](#spans) keep pointing at the
 source as loaded.

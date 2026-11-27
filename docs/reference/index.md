@@ -45,7 +45,7 @@ The procedures are type-bound methods of these types.
 | | [Blocks](/reference/blocks) | the block kinds, their fields and style slots, what `parse` builds | 1.5 |
 | | [HTML](/reference/html) | the renderer: fragment and standalone output, sinks, extension hooks | 1.6 |
 | | [Walk](/reference/walk) | the events and their offsets | 1.6 |
-| 2. Inlines | Conformance | the pinned HTML5 entity table; the pathological inputs | 2.2, 2.6 |
+| 2. Inlines | [Conformance](/reference/conformance#the-html5-entity-table) | the pinned HTML5 entity table; the pathological inputs | 2.2, 2.6 |
 | | Inlines | the inline kinds and their fields | 2.3 |
 | | Links and references | links, images, reference definitions | 2.4 |
 | | Extensions | the inline hooks | 2.5 |
