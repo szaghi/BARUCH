@@ -7,7 +7,7 @@ uses), fetched as sources and compiled with it.
 
 ```bash
 git clone https://github.com/szaghi/BARUCH && cd BARUCH
-fobis fetch                        # the dependencies into src/third_party, pinned by src/third_party/fobos.lock
+fobis fetch                        # the dependencies into src/third_party, their latest default branch
 fobis build --mode static-gnu      # lib/gnu/static/libbaruch.a (shared-gnu: libbaruch.so)
 ```
 

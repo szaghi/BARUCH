@@ -27,7 +27,8 @@ check = fobis fetch
         fobis build --mode tests-gnu
         bash scripts/run_tests.sh
 
-# fetched as sources into src/third_party (pinned in src/third_party/fobos.lock), compiled with BARUCH: StringiFor and
+# fetched as sources into src/third_party, always the latest default branch (never pinned: fobos.lock is not
+# tracked), compiled with BARUCH: StringiFor and
 # what it needs (PENF, FACE, BeFoR64), listed one by one as FoXy does
 [dependencies]
 deps_dir   = src/third_party

@@ -11,7 +11,7 @@
 *.gcda
 *.gcno
 *.gcov
-# dependencies fetched as sources by fobis fetch (src/third_party/.gitignore keeps the lock and the deps config)
+# dependencies fetched as sources by fobis fetch (src/third_party/.gitignore keeps only the deps config: no lock)
 # documentation
 /docs/node_modules/
 /docs/api/
