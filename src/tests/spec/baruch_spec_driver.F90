@@ -13,14 +13,16 @@ program baruch_spec_driver
 !< HTML. An example that cannot be read, parsed or written is reported on standard error, gets no output file (so it
 !< fails the comparison) and the driver goes on; the exit status is then 1. A misuse stops with status 2.
 !<
-!< The HTML comes from one procedure, `render_html`. No renderer exists before plan step 1.6: until then it renders
-!< nothing (an empty string), and step 1.6 puts the library's renderer there.
+!< The HTML comes from one procedure, `render_html`. The library's renderer comes with plan step 1.6; until then it
+!< calls the test-only block serialiser of `baruch_spec_html` (blocks as cmark writes them, inline content as escaped
+!< text), which step 1.6 replaces.
 !<
 !< With no argument the driver does nothing and exits 0: it lives in `src/tests/spec/`, so the test modes build it into
 !< `exe/` with every compiler, and `scripts/run_tests.sh`, which runs every program of `exe/` with no argument, counts
 !< it as a test that builds and starts.
 use, intrinsic :: iso_fortran_env, only : error_unit
 use baruch
+use baruch_spec_html,              only : render_blocks_html
 use penf,                          only : I4P
 implicit none
 character(:), allocatable :: arg       !< A command-line argument.
@@ -120,13 +122,12 @@ contains
    endsubroutine run_example
 
    subroutine render_html(doc, html)
-   !< Render a parsed document as HTML: the one place the driver's output comes from. No renderer before plan step 1.6:
-   !< the HTML is empty.
+   !< Render a parsed document as HTML: the one place the driver's output comes from. Until plan step 1.6 (the
+   !< library's renderer), the test-only block serialiser.
    type(markdown_document),   intent(in)  :: doc  !< Document, parsed.
    character(:), allocatable, intent(out) :: html !< HTML.
 
-   html = ''
-   if (.false.) html = doc%source() ! the document is used by step 1.6 only: no unused-argument warning until then
+   call render_blocks_html(doc, html)
    endsubroutine render_html
 
    subroutine get_argument(n, arg)

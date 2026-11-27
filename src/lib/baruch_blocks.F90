@@ -1,90 +1,76 @@
-!< BARUCH, the block parser: a document's lines into its tree of blocks, the extensions' block hooks called.
+!< BARUCH, the block parser: a document's lines into its tree of blocks (CommonMark 0.31.2), the extension hooks called.
 module baruch_blocks
-!< BARUCH, the block parser: a document's lines into its tree of blocks, the extensions' block hooks called.
+!< BARUCH, the block parser: a document's lines into its tree of blocks (CommonMark 0.31.2), the extension hooks called.
 !<
-!< **Status (plan step 1.3): the frame.** This module drives the extensions' block hooks over the lines of the source
-!< and builds the tree from what they claim; the CommonMark block starts are not written yet: a line no extension
-!< claims is paragraph text (a blank line closes the paragraph). Step 1.5 fills the frame with the CommonMark block
-!< algorithm (spec, appendix "A parsing strategy"), in the places marked `1.5` below.
+!< The block phase of CommonMark, as the spec's appendix "A parsing strategy" describes it (and cmark's `blocks.c`
+!< implements it, whose structure this follows): one pass over the lines of the source, no recursion, no per-container
+!< copy of the text. The state is a `block_parser` (`baruch_blocks_state`): the source copied once, the position in the
+!< current line (offset and column, a tab possibly consumed in part), the stack of open blocks, the tip's lines as byte
+!< ranges of the source. What a line starts with is asked of the scanners (`baruch_blocks_scan`); link reference
+!< definitions are read by `baruch_blocks_definitions`.
 !<
-!< **The frame.** One pass over the lines (`markdown_document%line_first`/`line_last`, the line index of plan step 1.2),
-!< no recursion, no per-container copy of the text:
+!< Each line (`incorporate_line`):
 !<
-!< - the source is copied once, at the start (`src`); a line is the slice `src(lf:ll)` and the parser's position in it
-!<   an **offset** (first byte not consumed) and a **column** (tab stops of 4, CommonMark 2.2): a container's marker
-!<   is consumed by moving them, never by cutting the line;
-!< - the **open blocks** are a stack of arrays (node, owner, content, first and last byte), the root at depth 1 and the
-!<   tip (the deepest open block) on top. The owner is 0 for a core block, else the index of the extension (in the
-!<   options' slots) that opened it: its hooks are the ones called for that block;
-!< - only the tip can take lines (a paragraph or a `CONTENT_LINES` block: a leaf is always the tip), so one pair of
-!<   arrays, `tip_first`/`tip_last`, holds the byte ranges of the tip's content lines; they are what `block_start` sees
-!<   as the open paragraph's lines and `block_close` receives.
+!< 1. **continuation**: every open block below the root, outermost first, says whether the line continues it and
+!<    consumes its marker (`block_continue` for an extension's block; `continue_core` for a core one: `>` for a block
+!<    quote, the item's indentation, an indented code block's four columns, a fence's indentation, a paragraph not
+!<    blank...); the first that does not ends the walk. A closing fence (or an extension's `BLOCK_FINISHED`) closes its
+!<    block and ends the line;
+!< 2. **block starts**: unless the deepest matched block takes lines, the position is offered to the extensions'
+!<    `block_start` (in registration order: an extension can take syntax away from the core), then to the core's starts
+!<    in the spec's order: block quote, ATX heading, fence, HTML block (type 7 never interrupts a paragraph), setext
+!<    underline (under a paragraph), thematic break, list item, indented code (never interrupting a paragraph). A start
+!<    closes the unmatched blocks, then the open blocks that cannot hold the new one; a container tries again on the
+!<    rest of the line, a leaf ends the loop;
+!< 3. **the rest of the line**: a lazy continuation line (no block opened, not every block matched, the tip a
+!<    paragraph) goes to the paragraph; otherwise the unmatched blocks close and the rest goes to the block it belongs
+!<    to: a code or HTML block takes it as it is (an HTML block of type 1 to 5 closes on its end condition), a
+!<    paragraph or an ATX heading from its first non-blank byte, and anything else opens a paragraph if it is not blank.
+!<    The blank-line bookkeeping of tight and loose lists (CommonMark 5.3, cmark's rules) is done here.
 !<
-!< Each line (`incorporate_line`, commonmark.js's shape):
+!< Closing a block (`close_blocks`) sets its span (first byte of its marker to the last byte of its last non-blank line)
+!< and finishes it: a paragraph gives its leading link reference definitions (nodes in place, before it; a paragraph
+!< left empty goes) and keeps the rest as one text node (its lines without their leading white space, joined by LF,
+!< the final trailing white space removed: the inline phase reads it); an ATX heading drops its closing sequence (the
+!< count recorded); a code block gets its literal (lines joined by LF, each ended by one; trailing blank lines of an
+!< indented block dropped) and a fenced one its info string; an HTML block its literal; a list its tightness. An
+!< extension's block gets `block_close`.
 !<
-!< 1. **continuation**: every open block below the root, outermost first, says whether the line continues it
-!<    (`block_continue` for an extension's block; `continue_core` for a core one) and consumes its marker; the first
-!<    that does not ends the walk: the blocks below it are unmatched;
-!< 2. **block starts**: unless the deepest matched block is a leaf taking lines, the extensions' `block_start` are
-!<    tried at the position (in the order they were registered, before the core's starts: an extension can take
-!<    syntax away from the core, as front matter takes `---`), then the core's (1.5). A claim closes the unmatched
-!<    blocks, takes the paragraph lines it asked for, links the new block (closing the open blocks that cannot hold it:
-!<    `can_contain`) and, for a container, tries again on the rest of the line; a leaf ends the loop;
-!< 3. **the rest of the line**: a lazy continuation line goes to the open paragraph (1.5: only when no block start
-!<    matched, CommonMark 5.1); otherwise the unmatched blocks close, and the rest goes to the tip if it takes lines,
-!<    or opens a paragraph if it is not blank.
-!<
-!< Closing a block (`close_blocks`) sets its span (first byte of its first line's marker to the last byte of its last
-!< line) and calls `block_close` (or the core's finishing: 1.5, link reference definitions out of paragraphs).
+!< The source style is recorded in the slots of `baruch_kinds_nodes`: bullet character or ordered delimiter, ATX or
+!< setext and the closing `#`s, fence character and length, thematic break character. A setext underline turns the
+!< paragraph into a heading (a new node; the paragraph becomes a tombstone), and a paragraph made of definitions only
+!< goes: the tree is compacted once at the end of a parse that left tombstones, so a parsed document has none.
 !<
 !< **The hook contract**, checked here (`BARUCH_ERR_CONTRACT`, the parse stops, never loops): a claimed start returns a
 !< new detached block of an extension kind; it consumes `0 <= consumed <= ` what is left of the line, and at least one
-!< byte unless the block takes lines (a container claiming without consuming would be offered the same position
-!< again, forever); `0 <= paragraph_taken <=` the paragraph's lines; a continuation consumes within the line and
-!< answers one of the three `BLOCK_*` values. The block-start loop is therefore bounded by the bytes of the line.
-!<
-!< For 1.5 (not in the frame yet): partly consumed tabs (a container marker ending inside a tab leaves columns that
-!< belong to the content: a `pad` per tip line), the core block starts and continuations, the blank-line bookkeeping
-!< of lists (tight or loose), setext headings (taking the paragraph like `paragraph_taken`), link reference
-!< definitions, the paragraph's raw content kept for the inline parser instead of the text node written now.
-use penf,               only : I4P
-use baruch_document,    only : markdown_document
-use baruch_extension,   only : extension_slot, BLOCK_UNMATCHED, BLOCK_MATCHED, BLOCK_FINISHED, &
-                               CONTENT_NONE, CONTENT_BLOCKS, CONTENT_LINES
-use baruch_kinds_nodes, only : NODE_DOCUMENT, NODE_PARAGRAPH, NODE_TEXT, NODE_BLOCK_QUOTE, NODE_ITEM, &
-                               NODE_EXTENSION_FIRST
+!< byte unless the block takes lines; `0 <= paragraph_taken <=` the paragraph's lines; a continuation consumes within
+!< the line and answers one of the three `BLOCK_*` values. The block-start loop is therefore bounded by the bytes of the
+!< line. The line ranges an extension's block receives cannot hold part of a tab: a tab partly consumed by a container
+!< marker is given whole.
+use penf,                      only : I4P
+use baruch_document,           only : markdown_document
+use baruch_extension,          only : extension_slot, BLOCK_UNMATCHED, BLOCK_MATCHED, BLOCK_FINISHED, &
+                                      CONTENT_NONE, CONTENT_BLOCKS, CONTENT_LINES
+use baruch_kinds_nodes,        only : NODE_DOCUMENT, NODE_BLOCK_QUOTE, NODE_LIST, NODE_ITEM, NODE_CODE_BLOCK,         &
+                                      NODE_HTML_BLOCK, NODE_PARAGRAPH, NODE_HEADING, NODE_THEMATIC_BREAK,             &
+                                      NODE_LINK_REFERENCE_DEFINITION, NODE_TEXT, NODE_EXTENSION_FIRST,                &
+                                      SLOT_HEADING_FORM, SLOT_HEADING_CLOSING, SLOT_LIST_TYPE, SLOT_LIST_START,       &
+                                      SLOT_LIST_MARKER, SLOT_CODE_FORM, SLOT_CODE_FENCE_CHAR, SLOT_CODE_FENCE_LENGTH, &
+                                      SLOT_BREAK_CHAR, HEADING_ATX, HEADING_SETEXT, LIST_BULLET, LIST_ORDERED,        &
+                                      CODE_INDENTED, CODE_FENCED
+use baruch_blocks_scan,        only : is_space_or_tab, backslash_unescape, scan_thematic_break, scan_atx_start,    &
+                                      scan_open_fence, scan_close_fence, scan_setext_underline, scan_list_marker, &
+                                      scan_html_block_start, html_block_end
+use baruch_blocks_state,       only : block_parser, CONTENT_PARAGRAPH, FLAG_LAST_LINE_BLANK, FLAG_LAST_LINE_CHECKED, &
+                                      FLAG_LIST_LAST_LINE_BLANK, TAB_STOP, CODE_INDENT, LF
+use baruch_blocks_definitions, only : parse_definition
 use baruch_status
 implicit none
 private
 public :: parse_blocks
 
-integer(I4P), parameter :: STACK_DEFAULT = 32_I4P !< Open blocks and tip lines allocated up front (both grow).
-integer(I4P), parameter :: CONTENT_PARAGRAPH = -1_I4P !< Content of a paragraph: lines, but blocks may start in it.
-character,    parameter :: TAB = achar(9)  !< Tab.
-character,    parameter :: LF  = achar(10) !< Line feed.
-
-type :: block_parser
-   !< The state of one parse: the source, the current line, the open blocks, the tip's lines.
-   character(:), allocatable :: src                  !< The document's source, copied once.
-   integer(I4P)              :: ln = 0_I4P           !< Current line number.
-   integer(I4P)              :: lf = 0_I4P           !< Its first byte in `src`.
-   integer(I4P)              :: ll = 0_I4P           !< Its last byte (ending excluded).
-   integer(I4P)              :: offset = 1_I4P       !< First byte of the line not consumed (1-based in the line).
-   integer(I4P)              :: column = 0_I4P       !< Column of `offset`.
-   integer(I4P)              :: nonspace = 1_I4P     !< First byte at or after `offset` that is not a space or tab.
-   integer(I4P)              :: indent = 0_I4P       !< Columns from `offset` to `nonspace`.
-   logical                   :: blank = .true.       !< Nothing but spaces and tabs from `offset`.
-   integer(I4P)              :: depth = 0_I4P        !< Open blocks, the root included.
-   integer(I4P), allocatable :: open_node(:)         !< Node of each open block, root first.
-   integer(I4P), allocatable :: open_owner(:)        !< Its owner: 0 the core, else the slot of its extension.
-   integer(I4P), allocatable :: open_content(:)      !< Its content: `CONTENT_*` or `CONTENT_PARAGRAPH`.
-   integer(I4P), allocatable :: open_first(:)        !< First byte of its span.
-   integer(I4P), allocatable :: open_last(:)         !< Last byte of its span so far.
-   integer(I4P)              :: tip_lines = 0_I4P    !< Content lines of the tip.
-   integer(I4P), allocatable :: tip_first(:)         !< First byte of each.
-   integer(I4P), allocatable :: tip_last(:)          !< Last byte of each.
-   integer(I4P), allocatable :: active(:)            !< Slots of the enabled extensions, in order.
-endtype block_parser
+integer(I4P), parameter :: STACK_DEFAULT = 32_I4P !< Open blocks, tip lines and node flags allocated up front.
+integer(I4P), parameter :: LINE_DONE = -1_I4P     !< A continuation ended the line (cmark's blank-line shortcut).
 
 contains
    subroutine parse_blocks(doc, slots, stat, errmsg)
@@ -109,6 +95,7 @@ contains
       if (ierr /= BARUCH_OK) exit
    enddo
    if (ierr == BARUCH_OK) call close_blocks(p, doc, slots, 2_I4P, ierr, msg)
+   if (ierr == BARUCH_OK .and. p%tombstones) call doc%compact(stat=ierr, errmsg=msg)
    if (ierr == BARUCH_OK) call doc%set_span(doc%root(), 1_I4P, len(p%src, kind=I4P))
    if (ierr /= BARUCH_OK) call status_error(ierr, msg, stat, errmsg)
    endsubroutine parse_blocks
@@ -123,14 +110,18 @@ contains
 
    p%src = doc%source()
    allocate(p%open_node(STACK_DEFAULT), p%open_owner(STACK_DEFAULT), p%open_content(STACK_DEFAULT), &
-            p%open_first(STACK_DEFAULT), p%open_last(STACK_DEFAULT))
-   allocate(p%tip_first(STACK_DEFAULT), p%tip_last(STACK_DEFAULT))
+            p%open_first(STACK_DEFAULT), p%open_last(STACK_DEFAULT), p%open_a(STACK_DEFAULT), p%open_b(STACK_DEFAULT))
+   allocate(p%tip_first(STACK_DEFAULT), p%tip_last(STACK_DEFAULT), p%tip_pad(STACK_DEFAULT))
+   allocate(p%flags(STACK_DEFAULT))
+   p%flags = 0_I4P
    p%depth = 1_I4P
    p%open_node(1) = doc%root()
    p%open_owner(1) = 0_I4P
    p%open_content(1) = CONTENT_BLOCKS
    p%open_first(1) = 1_I4P
    p%open_last(1) = 0_I4P
+   p%open_a(1) = 0_I4P
+   p%open_b(1) = 0_I4P
    p%tip_lines = 0_I4P
    allocate(p%active(0))
    do s=1, size(slots, kind=I4P)
@@ -139,7 +130,7 @@ contains
    endsubroutine start
 
    subroutine incorporate_line(p, doc, slots, ln, ierr, msg)
-   !< Incorporate a line: continue the open blocks, try the block starts, give the rest of the line to the tip.
+   !< Incorporate a line: continue the open blocks, try the block starts, give the rest of the line to its block.
    type(block_parser),        intent(inout) :: p           !< Parser.
    type(markdown_document),   intent(inout) :: doc         !< Document.
    type(extension_slot),      intent(in)    :: slots(:)    !< Extensions of the options.
@@ -147,24 +138,24 @@ contains
    integer(I4P),              intent(inout) :: ierr        !< Status.
    character(:), allocatable, intent(inout) :: msg         !< Message.
    integer(I4P)                             :: matched     !< Depth of the deepest block the line continues.
+   integer(I4P)                             :: cont        !< Depth of the block new blocks open in.
    integer(I4P)                             :: d           !< Depth.
    integer(I4P)                             :: o           !< Owner slot.
    integer(I4P)                             :: match       !< What a continuation says.
    integer(I4P)                             :: consumed    !< Bytes a hook consumed.
    logical                                  :: all_matched !< The line continues every open block.
-   logical                                  :: leaf        !< A leaf is open at the position: no more starts.
+   logical                                  :: opened      !< A block start claimed the line.
+   logical                                  :: maybe_lazy  !< The tip is a paragraph.
    logical                                  :: claimed     !< A block start claimed the position.
-   logical                                  :: lazy        !< The line is a paragraph continuation text.
+   logical                                  :: leaf        !< The new block is a leaf.
+   logical                                  :: done        !< The line is consumed.
 
-   p%ln = ln
-   p%lf = doc%line_first(ln)
-   p%ll = doc%line_last(ln)
-   p%offset = 1_I4P
-   p%column = 0_I4P
+   call p%start_line(ln, doc%line_first(ln), doc%line_last(ln))
    ! 1. continuation of the open blocks
    matched = 1_I4P
+   all_matched = .true.
    do d=2, p%depth
-      call find_nonspace(p)
+      call p%find_nonspace()
       o = p%open_owner(d)
       if (o > 0_I4P) then
          call slots(o)%ext%block_continue(doc, p%open_node(d), p%src(p%lf:p%ll), p%ln, p%offset, p%column, p%indent, &
@@ -173,16 +164,15 @@ contains
             msg = hook_message(slots, o, 'block_continue', ln, msg)
             return
          endif
-         if (consumed < 0_I4P .or. consumed > remaining(p)) then
+         if (consumed < 0_I4P .or. consumed > p%remaining()) then
             call contract(slots, o, 'block_continue', ln, 'consumed '//istr(consumed)//' bytes of the '// &
-                          istr(remaining(p))//' left in the line', ierr, msg)
+                          istr(p%remaining())//' left in the line', ierr, msg)
             return
          endif
          select case(match)
          case(BLOCK_UNMATCHED)
-            exit
          case(BLOCK_MATCHED)
-            call advance(p, consumed)
+            call p%advance_bytes(consumed)
          case(BLOCK_FINISHED) ! the block takes the whole line and closes; the line is done
             p%open_last(d) = p%ll
             call close_blocks(p, doc, slots, d, ierr, msg)
@@ -193,49 +183,129 @@ contains
             return
          endselect
       else
-         call continue_core(p, d, match)
-         if (match == BLOCK_UNMATCHED) exit
+         call continue_core(p, doc, slots, d, match, ierr, msg)
+         if (ierr /= BARUCH_OK .or. match == BLOCK_FINISHED .or. match == LINE_DONE) return
+      endif
+      if (match == BLOCK_UNMATCHED) then
+         all_matched = .false.
+         exit
       endif
       matched = d
-      p%open_last(d) = p%ll
+      if (.not. p%line_blank) p%open_last(d) = p%ll
    enddo
-   all_matched = matched == p%depth
    ! 2. block starts, at the deepest matched block
-   leaf = p%open_content(matched) == CONTENT_LINES
-   do while (.not. leaf)
-      call find_nonspace(p)
-      call try_starts(p, doc, slots, matched, all_matched, claimed, leaf, ierr, msg)
+   cont = matched
+   opened = .false.
+   maybe_lazy = p%open_content(p%depth) == CONTENT_PARAGRAPH
+   do
+      if (p%open_content(cont) == CONTENT_LINES) exit
+      call p%find_nonspace()
+      call try_extension_starts(p, doc, slots, cont, all_matched, claimed, leaf, ierr, msg)
       if (ierr /= BARUCH_OK) return
+      if (.not. claimed) then
+         call try_core_starts(p, doc, slots, cont, all_matched, maybe_lazy, claimed, leaf, done, ierr, msg)
+         if (ierr /= BARUCH_OK .or. done) return
+      endif
       if (.not. claimed) exit
-      matched = p%depth
+      opened = .true.
+      maybe_lazy = .false.
+      cont = p%depth
+      if (leaf) exit
    enddo
    ! 3. the rest of the line
-   call find_nonspace(p)
-   lazy = (.not. all_matched) .and. (.not. p%blank) .and. p%open_content(p%depth) == CONTENT_PARAGRAPH
-   if (lazy) then ! a paragraph continuation text (CommonMark 5.1): no block opened, some not matched
-      call add_line(p)
-      p%open_last(p%depth) = p%ll
-      return
-   endif
-   if (.not. all_matched) call close_blocks(p, doc, slots, matched + 1_I4P, ierr, msg)
-   if (ierr /= BARUCH_OK) return
-   if (p%open_content(p%depth) == CONTENT_LINES .or. p%open_content(p%depth) == CONTENT_PARAGRAPH) then
-      call add_line(p)
-      p%open_last(p%depth) = p%ll
-   elseif (.not. p%blank) then ! 1.5: the core leaf starts come before this
-      call open_paragraph(p, doc, slots, ierr, msg)
-      if (ierr /= BARUCH_OK) return
-      call add_line(p)
-   endif
+   call add_text(p, doc, slots, cont, opened, all_matched, ierr, msg)
    endsubroutine incorporate_line
 
-   subroutine try_starts(p, doc, slots, matched, all_matched, claimed, leaf, ierr, msg)
-   !< Offer the position to the block starts. On a claim: close the unmatched blocks (`all_matched` becomes true),
-   !< take the paragraph lines asked for, link the new block; `leaf` true if the new block is a leaf.
+   subroutine continue_core(p, doc, slots, d, match, ierr, msg)
+   !< Say whether the line continues the open core block at depth `d` (CommonMark appendix, step 1), consuming its
+   !< marker: `BLOCK_MATCHED`, `BLOCK_UNMATCHED`, `BLOCK_FINISHED` (a closing fence: the block closed, the line done)
+   !< or `LINE_DONE` (a second blank line in a list: nothing else to do with the line, as cmark).
+   type(block_parser),        intent(inout) :: p        !< Parser.
+   type(markdown_document),   intent(inout) :: doc      !< Document.
+   type(extension_slot),      intent(in)    :: slots(:) !< Extensions of the options.
+   integer(I4P),              intent(in)    :: d        !< Depth of the block.
+   integer(I4P),              intent(out)   :: match    !< What the line does to it.
+   integer(I4P),              intent(inout) :: ierr     !< Status.
+   character(:), allocatable, intent(inout) :: msg      !< Message.
+   integer(I4P)                             :: n        !< Node.
+   integer(I4P)                             :: length   !< Closing fence length.
+   integer(I4P)                             :: k        !< Counter.
+   integer(I4P)                             :: tip      !< Kind of the tip.
+   character                                :: fence    !< Fence character.
+
+   match = BLOCK_UNMATCHED
+   n = p%open_node(d)
+   select case(doc%node_kind(n))
+   case(NODE_BLOCK_QUOTE)
+      if (p%indent <= 3_I4P .and. p%char_at(p%nonspace) == '>') then
+         call p%advance_columns(p%indent + 1_I4P)
+         if (is_space_or_tab(p%char_at(p%offset))) call p%advance_columns(1_I4P)
+         match = BLOCK_MATCHED
+      endif
+   case(NODE_LIST)
+      match = BLOCK_MATCHED
+      if (p%blank) then
+         if (p%flag(n, FLAG_LIST_LAST_LINE_BLANK) .and. p%indent == 0_I4P) then
+            ! a second blank line: every open block below already closed at the first (no quadratic walk of deep lists)
+            tip = doc%node_kind(p%open_node(p%depth))
+            if (p%open_owner(p%depth) == 0_I4P .and. (tip == NODE_CODE_BLOCK .or. tip == NODE_HTML_BLOCK)) &
+               call p%add_line()
+            match = LINE_DONE
+            return
+         endif
+         call p%set_flag(n, FLAG_LIST_LAST_LINE_BLANK, .true.)
+      else
+         call p%set_flag(n, FLAG_LIST_LAST_LINE_BLANK, .false.)
+      endif
+   case(NODE_ITEM)
+      if (p%indent >= p%open_a(d)) then
+         call p%advance_columns(p%open_a(d))
+         match = BLOCK_MATCHED
+      elseif (p%blank .and. first_real_child(doc, n) /= 0_I4P) then
+         call p%advance_bytes(p%nonspace - p%offset)
+         match = BLOCK_MATCHED
+      endif
+   case(NODE_CODE_BLOCK)
+      if (doc%int_slot(n, SLOT_CODE_FORM) == CODE_INDENTED) then
+         if (p%indent >= CODE_INDENT) then
+            call p%advance_columns(CODE_INDENT)
+            match = BLOCK_MATCHED
+         elseif (p%blank) then
+            call p%advance_bytes(p%nonspace - p%offset)
+            match = BLOCK_MATCHED
+         endif
+      else
+         fence = achar(doc%int_slot(n, SLOT_CODE_FENCE_CHAR))
+         length = 0_I4P
+         if (p%indent <= 3_I4P .and. p%char_at(p%nonspace) == fence) &
+            length = scan_close_fence(p%src(p%lf:p%ll), p%nonspace, fence)
+         if (length >= doc%int_slot(n, SLOT_CODE_FENCE_LENGTH) .and. length > 0_I4P) then
+            p%open_last(d) = p%ll
+            call close_blocks(p, doc, slots, d, ierr, msg)
+            match = BLOCK_FINISHED
+         else
+            k = p%open_a(d)
+            do while (k > 0_I4P .and. is_space_or_tab(p%char_at(p%offset)))
+               call p%advance_columns(1_I4P)
+               k = k - 1_I4P
+            enddo
+            match = BLOCK_MATCHED
+         endif
+      endif
+   case(NODE_HTML_BLOCK)
+      if (p%open_a(d) <= 5_I4P .or. .not. p%blank) match = BLOCK_MATCHED
+   case(NODE_PARAGRAPH)
+      if (.not. p%blank) match = BLOCK_MATCHED
+   endselect
+   endsubroutine continue_core
+
+   subroutine try_extension_starts(p, doc, slots, cont, all_matched, claimed, leaf, ierr, msg)
+   !< Offer the position to the enabled extensions' block starts. On a claim: close the unmatched blocks (`all_matched`
+   !< becomes true), take the paragraph lines asked for, link the new block; `leaf` true if the new block is a leaf.
    type(block_parser),        intent(inout) :: p           !< Parser.
    type(markdown_document),   intent(inout) :: doc         !< Document.
    type(extension_slot),      intent(in)    :: slots(:)    !< Extensions of the options.
-   integer(I4P),              intent(in)    :: matched     !< Depth of the deepest matched block.
+   integer(I4P),              intent(in)    :: cont        !< Depth of the deepest matched block.
    logical,                   intent(inout) :: all_matched !< Every open block matched (or the unmatched are closed).
    logical,                   intent(out)   :: claimed     !< A block start claimed the position.
    logical,                   intent(out)   :: leaf        !< The new block is a leaf.
@@ -255,16 +325,19 @@ contains
 
    claimed = .false.
    leaf = .false.
-   host = matched
+   if (size(p%active) == 0) return
+   host = cont
    paragraph = 0_I4P
    lines = 0_I4P
-   if (p%open_content(matched) == CONTENT_PARAGRAPH) then
-      host = matched - 1_I4P
-      paragraph = p%open_node(matched)
+   if (p%open_content(cont) == CONTENT_PARAGRAPH) then
+      host = cont - 1_I4P
+      paragraph = p%open_node(cont)
       lines = p%tip_lines
    endif
    node = 0_I4P
    o = 0_I4P
+   consumed = 0_I4P
+   taken = 0_I4P
    do a=1, size(p%active, kind=I4P)
       o = p%active(a)
       call slots(o)%ext%block_start(doc, p%src(p%lf:p%ll), p%ln, p%offset, p%column, p%indent, p%open_node(host),   &
@@ -276,7 +349,6 @@ contains
       endif
       if (node /= 0_I4P) exit
    enddo
-   ! 1.5: the core block starts, when no extension claimed the position
    if (node == 0_I4P) return
    ! the contract
    why = ''
@@ -292,8 +364,8 @@ contains
       if (content /= CONTENT_NONE .and. content /= CONTENT_BLOCKS .and. content /= CONTENT_LINES) then
          why = 'block_content of kind '//istr(doc%node_kind(node))//' is '//istr(content)// &
                ', not CONTENT_NONE, CONTENT_BLOCKS or CONTENT_LINES'
-      elseif (consumed < 0_I4P .or. consumed > remaining(p)) then
-         why = 'consumed '//istr(consumed)//' bytes of the '//istr(remaining(p))//' left in the line'
+      elseif (consumed < 0_I4P .or. consumed > p%remaining()) then
+         why = 'consumed '//istr(consumed)//' bytes of the '//istr(p%remaining())//' left in the line'
       elseif (consumed == 0_I4P .and. content /= CONTENT_LINES) then
          why = 'claimed a block that takes no lines without consuming input (it would be offered the same position '// &
                'again, forever)'
@@ -308,41 +380,351 @@ contains
    endif
    ! the claim: the block's span starts at its marker
    first = p%lf + p%nonspace - 1_I4P
-   call advance(p, consumed)
-   if (.not. all_matched) call close_blocks(p, doc, slots, matched + 1_I4P, ierr, msg)
+   call p%advance_bytes(consumed)
+   if (.not. all_matched) call close_blocks(p, doc, slots, cont + 1_I4P, ierr, msg)
    if (ierr /= BARUCH_OK) return
    all_matched = .true.
    if (paragraph /= 0_I4P) then ! the paragraph keeps the lines not taken, and closes (it holds no block)
       p%tip_lines = p%tip_lines - taken
       if (p%tip_lines == 0_I4P) then
          call doc%unlink(paragraph)
-         p%open_last(matched - 1_I4P) = max(p%open_last(matched - 1_I4P), p%open_last(matched))
+         p%tombstones = .true.
+         p%open_last(cont - 1_I4P) = max(p%open_last(cont - 1_I4P), p%open_last(cont))
          p%depth = p%depth - 1_I4P
       else
-         p%open_last(matched) = p%tip_last(p%tip_lines)
-         call close_blocks(p, doc, slots, matched, ierr, msg)
+         p%open_last(cont) = p%tip_last(p%tip_lines)
+         call close_blocks(p, doc, slots, cont, ierr, msg)
          if (ierr /= BARUCH_OK) return
       endif
    endif
-   call add_block(p, doc, slots, node, o, content, first, ierr, msg)
+   call add_block(p, doc, slots, node, o, content, first, 0_I4P, 0_I4P, ierr, msg)
    if (ierr /= BARUCH_OK) return
    claimed = .true.
    leaf = content /= CONTENT_BLOCKS
-   endsubroutine try_starts
+   endsubroutine try_extension_starts
 
-   subroutine continue_core(p, d, match)
-   !< Say whether the line continues an open core block. The frame knows the paragraph only (a blank line ends it);
-   !< 1.5: block quotes (`>`), list items (indentation), code blocks, HTML blocks.
-   type(block_parser), intent(in)  :: p     !< Parser.
-   integer(I4P),       intent(in)  :: d     !< Depth of the block.
-   integer(I4P),       intent(out) :: match !< `BLOCK_UNMATCHED`, `BLOCK_MATCHED`.
+   subroutine try_core_starts(p, doc, slots, cont, all_matched, maybe_lazy, claimed, leaf, done, ierr, msg)
+   !< Offer the position to the core block starts, in the spec's order (CommonMark appendix, step 2). On a claim the
+   !< new block is linked and pushed (`leaf` true if it takes no blocks); a setext underline turning the paragraph into
+   !< a heading consumes the line (`done`).
+   type(block_parser),        intent(inout) :: p             !< Parser.
+   type(markdown_document),   intent(inout) :: doc           !< Document.
+   type(extension_slot),      intent(in)    :: slots(:)      !< Extensions of the options.
+   integer(I4P),              intent(in)    :: cont          !< Depth of the deepest matched (or new) block.
+   logical,                   intent(inout) :: all_matched   !< Every open block matched (or the unmatched are closed).
+   logical,                   intent(in)    :: maybe_lazy    !< The tip is a paragraph (no indented code, no type 7).
+   logical,                   intent(out)   :: claimed       !< A block start claimed the position.
+   logical,                   intent(out)   :: leaf          !< The new block is a leaf.
+   logical,                   intent(out)   :: done          !< The line is consumed.
+   integer(I4P),              intent(inout) :: ierr          !< Status.
+   character(:), allocatable, intent(inout) :: msg           !< Message.
+   integer(I4P)                             :: ns            !< First non-blank byte of the line from the offset.
+   integer(I4P)                             :: first         !< Its byte in the source.
+   integer(I4P)                             :: node          !< New block.
+   integer(I4P)                             :: level         !< Heading level.
+   integer(I4P)                             :: matched       !< Bytes of a marker.
+   integer(I4P)                             :: break_char    !< Thematic break character.
+   integer(I4P)                             :: fail_at       !< Where a thematic break scan failed.
+   integer(I4P)                             :: htype         !< HTML block type.
+   integer(I4P)                             :: marker        !< List bullet or delimiter.
+   integer(I4P)                             :: number        !< Ordered list start.
+   integer(I4P)                             :: marker_offset !< Indentation of a list marker.
+   integer(I4P)                             :: padding       !< Columns from the marker to the item's content.
+   integer(I4P)                             :: spaces        !< Columns of white space after the marker.
+   integer(I4P)                             :: save_offset   !< Offset after the marker.
+   integer(I4P)                             :: save_column   !< Column after the marker.
+   logical                                  :: save_partial  !< Partly consumed tab after the marker.
+   logical                                  :: indented      !< Indented 4 columns or more.
+   logical                                  :: is_paragraph  !< The block at `cont` is a paragraph.
+   logical                                  :: ordered       !< An ordered list marker.
 
-   match = BLOCK_UNMATCHED
-   if (p%open_content(d) == CONTENT_PARAGRAPH .and. .not. p%blank) match = BLOCK_MATCHED
-   endsubroutine continue_core
+   claimed = .false.
+   leaf = .false.
+   done = .false.
+   ns = p%nonspace
+   first = p%lf + ns - 1_I4P
+   indented = p%indent >= CODE_INDENT
+   is_paragraph = p%open_content(cont) == CONTENT_PARAGRAPH
+   if (.not. indented) then
+      ! block quote
+      if (p%char_at(ns) == '>') then
+         call p%advance_bytes(ns + 1_I4P - p%offset)
+         if (is_space_or_tab(p%char_at(p%offset))) call p%advance_columns(1_I4P)
+         call open_core(p, doc, slots, NODE_BLOCK_QUOTE, CONTENT_BLOCKS, first, 0_I4P, 0_I4P, cont, all_matched, node, &
+                        ierr, msg)
+         claimed = ierr == BARUCH_OK
+         return
+      endif
+      ! ATX heading
+      call scan_atx_start(p%src(p%lf:p%ll), ns, level, matched)
+      if (level > 0_I4P) then
+         call p%advance_bytes(ns + matched - p%offset)
+         call open_core(p, doc, slots, NODE_HEADING, CONTENT_LINES, first, 0_I4P, 0_I4P, cont, all_matched, node, &
+                        ierr, msg)
+         if (ierr == BARUCH_OK) call doc%set_heading_level(node, level, stat=ierr, errmsg=msg)
+         if (ierr == BARUCH_OK) call doc%set_int_slot(node, SLOT_HEADING_FORM, HEADING_ATX, stat=ierr, errmsg=msg)
+         claimed = ierr == BARUCH_OK
+         leaf = .true.
+         return
+      endif
+      ! fenced code
+      matched = scan_open_fence(p%src(p%lf:p%ll), ns)
+      if (matched > 0_I4P) then
+         call open_core(p, doc, slots, NODE_CODE_BLOCK, CONTENT_LINES, first, ns - p%offset, 0_I4P, cont, &
+                        all_matched, node, ierr, msg)
+         if (ierr == BARUCH_OK) call doc%set_int_slot(node, SLOT_CODE_FORM, CODE_FENCED, stat=ierr, errmsg=msg)
+         if (ierr == BARUCH_OK) call doc%set_int_slot(node, SLOT_CODE_FENCE_CHAR,                    &
+                                                     iachar(p%src(first:first), kind=I4P), stat=ierr, errmsg=msg)
+         if (ierr == BARUCH_OK) call doc%set_int_slot(node, SLOT_CODE_FENCE_LENGTH, matched, stat=ierr, errmsg=msg)
+         call p%advance_bytes(ns + matched - p%offset)
+         claimed = ierr == BARUCH_OK
+         leaf = .true.
+         return
+      endif
+      ! HTML block (the tag is content: nothing consumed)
+      htype = scan_html_block_start(p%src(p%lf:p%ll), ns, allow7=.not. is_paragraph .and. .not. maybe_lazy)
+      if (htype > 0_I4P) then
+         call open_core(p, doc, slots, NODE_HTML_BLOCK, CONTENT_LINES, first, htype, 0_I4P, cont, all_matched, node, &
+                        ierr, msg)
+         claimed = ierr == BARUCH_OK
+         leaf = .true.
+         return
+      endif
+      ! setext heading underline, under a paragraph
+      if (is_paragraph) then
+         level = scan_setext_underline(p%src(p%lf:p%ll), ns)
+         if (level > 0_I4P) then
+            call setext_heading(p, doc, cont, level, done, ierr, msg)
+            return ! not a heading (the paragraph was definitions only): the line is paragraph text
+         endif
+      endif
+      ! thematic break
+      if (p%break_fail <= ns) then
+         call scan_thematic_break(p%src(p%lf:p%ll), ns, break_char, fail_at)
+         if (fail_at > 0_I4P) p%break_fail = fail_at
+         if (break_char > 0_I4P) then
+            call open_core(p, doc, slots, NODE_THEMATIC_BREAK, CONTENT_NONE, first, 0_I4P, 0_I4P, cont, all_matched, &
+                           node, ierr, msg)
+            if (ierr == BARUCH_OK) call doc%set_int_slot(node, SLOT_BREAK_CHAR, break_char, stat=ierr, errmsg=msg)
+            call p%advance_bytes(p%remaining())
+            claimed = ierr == BARUCH_OK
+            leaf = .true.
+            return
+         endif
+      endif
+      ! list item
+      call scan_list_marker(p%src(p%lf:p%ll), ns, is_paragraph, ordered, marker, number, matched)
+      if (matched > 0_I4P) then
+         marker_offset = p%indent
+         call p%advance_bytes(ns + matched - p%offset)
+         save_partial = p%partial_tab
+         save_offset = p%offset
+         save_column = p%column
+         do while (p%column - save_column <= 5_I4P .and. is_space_or_tab(p%char_at(p%offset)))
+            call p%advance_columns(1_I4P)
+         enddo
+         spaces = p%column - save_column
+         if (spaces >= 5_I4P .or. spaces < 1_I4P .or. p%char_at(p%offset) == LF) then
+            ! content indented 5 or more (indented code in the item), or none: one space belongs to the marker
+            padding = matched + 1_I4P
+            p%offset = save_offset
+            p%column = save_column
+            p%partial_tab = save_partial
+            if (spaces > 0_I4P) call p%advance_columns(1_I4P)
+         else
+            padding = matched + spaces
+         endif
+         if (.not. lists_match(p, doc, cont, ordered, marker)) then
+            call open_core(p, doc, slots, NODE_LIST, CONTENT_BLOCKS, first, 0_I4P, 0_I4P, cont, all_matched, node, &
+                           ierr, msg)
+            if (ierr == BARUCH_OK) call doc%set_list_type(node, merge(LIST_ORDERED, LIST_BULLET, ordered), stat=ierr, &
+                                                          errmsg=msg)
+            if (ierr == BARUCH_OK .and. ordered) call doc%set_list_start(node, number, stat=ierr, errmsg=msg)
+            if (ierr == BARUCH_OK) call doc%set_int_slot(node, SLOT_LIST_MARKER, marker, stat=ierr, errmsg=msg)
+            if (ierr /= BARUCH_OK) return
+         endif
+         call open_core(p, doc, slots, NODE_ITEM, CONTENT_BLOCKS, first, marker_offset + padding, p%ln, cont, &
+                        all_matched, node, ierr, msg)
+         claimed = ierr == BARUCH_OK
+         return
+      endif
+   elseif (.not. maybe_lazy .and. .not. p%blank) then
+      ! indented code
+      call p%advance_columns(CODE_INDENT)
+      call open_core(p, doc, slots, NODE_CODE_BLOCK, CONTENT_LINES, first, 0_I4P, 0_I4P, cont, all_matched, node, &
+                     ierr, msg)
+      if (ierr == BARUCH_OK) call doc%set_int_slot(node, SLOT_CODE_FORM, CODE_INDENTED, stat=ierr, errmsg=msg)
+      claimed = ierr == BARUCH_OK
+      leaf = .true.
+   endif
+   endsubroutine try_core_starts
+
+   subroutine open_core(p, doc, slots, kind, content, first, a, b, cont, all_matched, node, ierr, msg)
+   !< Open a core block: the unmatched blocks below `cont` close, the new node is linked in the deepest open block that
+   !< can hold it and pushed.
+   type(block_parser),        intent(inout) :: p           !< Parser.
+   type(markdown_document),   intent(inout) :: doc         !< Document.
+   type(extension_slot),      intent(in)    :: slots(:)    !< Extensions of the options.
+   integer(I4P),              intent(in)    :: kind        !< Kind.
+   integer(I4P),              intent(in)    :: content     !< Content.
+   integer(I4P), value,       intent(in)    :: first       !< First byte of its span.
+   integer(I4P), value,       intent(in)    :: a           !< Core integer `a`.
+   integer(I4P), value,       intent(in)    :: b           !< Core integer `b` (callers pass `p%ln`).
+   integer(I4P),              intent(in)    :: cont        !< Depth of the deepest matched block.
+   logical,                   intent(inout) :: all_matched !< Every open block matched (or the unmatched are closed).
+   integer(I4P),              intent(out)   :: node        !< New block.
+   integer(I4P),              intent(inout) :: ierr        !< Status.
+   character(:), allocatable, intent(inout) :: msg         !< Message.
+
+   node = 0_I4P
+   if (.not. all_matched) then
+      call close_blocks(p, doc, slots, cont + 1_I4P, ierr, msg)
+      if (ierr /= BARUCH_OK) return
+      all_matched = .true.
+   endif
+   node = doc%new_node(kind, stat=ierr, errmsg=msg)
+   if (ierr /= BARUCH_OK) return
+   call add_block(p, doc, slots, node, 0_I4P, content, first, a, b, ierr, msg)
+   endsubroutine open_core
+
+   function lists_match(p, doc, cont, ordered, marker) result(match)
+   !< True if the block at `cont` is a list a new item of this marker belongs to: same type, same bullet or delimiter.
+   type(block_parser),      intent(in) :: p       !< Parser.
+   type(markdown_document), intent(in) :: doc     !< Document.
+   integer(I4P),            intent(in) :: cont    !< Depth.
+   logical,                 intent(in) :: ordered !< The item is ordered.
+   integer(I4P),            intent(in) :: marker  !< Its bullet or delimiter.
+   logical                             :: match   !< Result.
+   integer(I4P)                        :: n       !< Node.
+
+   match = .false.
+   n = p%open_node(cont)
+   if (p%open_owner(cont) /= 0_I4P) return
+   if (doc%node_kind(n) /= NODE_LIST) return
+   match = doc%int_slot(n, SLOT_LIST_TYPE) == merge(LIST_ORDERED, LIST_BULLET, ordered) .and. &
+           doc%int_slot(n, SLOT_LIST_MARKER) == marker
+   endfunction lists_match
+
+   subroutine setext_heading(p, doc, cont, level, done, ierr, msg)
+   !< A setext underline under the paragraph at `cont` (the tip): its leading link reference definitions go first; if
+   !< text is left, a heading of it replaces the paragraph (`done`: the line is consumed).
+   type(block_parser),        intent(inout) :: p     !< Parser.
+   type(markdown_document),   intent(inout) :: doc   !< Document.
+   integer(I4P),              intent(in)    :: cont  !< Depth of the paragraph.
+   integer(I4P),              intent(in)    :: level !< Heading level.
+   logical,                   intent(out)   :: done  !< The paragraph became a heading.
+   integer(I4P),              intent(inout) :: ierr  !< Status.
+   character(:), allocatable, intent(inout) :: msg   !< Message.
+   integer(I4P)                             :: para  !< Paragraph.
+   integer(I4P)                             :: h     !< Heading.
+   integer(I4P)                             :: first !< First byte of the heading.
+   integer(I4P)                             :: d     !< Depth.
+
+   done = .false.
+   para = p%open_node(cont)
+   call extract_definitions(p, doc, para, ierr, msg)
+   if (ierr /= BARUCH_OK .or. p%tip_lines == 0_I4P) return
+   first = first_nonspace(p, 1_I4P)
+   h = doc%new_node(NODE_HEADING, stat=ierr, errmsg=msg)
+   if (ierr == BARUCH_OK) call doc%insert_before(para, h, stat=ierr, errmsg=msg)
+   if (ierr == BARUCH_OK) call doc%set_heading_level(h, level, stat=ierr, errmsg=msg)
+   if (ierr == BARUCH_OK) call doc%set_int_slot(h, SLOT_HEADING_FORM, HEADING_SETEXT, stat=ierr, errmsg=msg)
+   if (ierr == BARUCH_OK) call doc%set_span(h, first, p%ll, stat=ierr, errmsg=msg)
+   if (ierr == BARUCH_OK) call add_text_node(doc, h, paragraph_text(p), first, p%tip_last(p%tip_lines), ierr, msg)
+   if (ierr == BARUCH_OK) call doc%unlink(para, stat=ierr, errmsg=msg)
+   if (ierr /= BARUCH_OK) return
+   p%tombstones = .true.
+   p%tip_lines = 0_I4P
+   p%depth = cont - 1_I4P
+   p%open_last(p%depth) = max(p%open_last(p%depth), p%ll)
+   do d=p%depth, 1_I4P, -1_I4P ! the line is not blank for the heading's ancestors (CommonMark 5.3 bookkeeping)
+      call p%set_flag(p%open_node(d), FLAG_LAST_LINE_BLANK, .false.)
+   enddo
+   done = .true.
+   endsubroutine setext_heading
+
+   subroutine add_text(p, doc, slots, c, opened, all_matched, ierr, msg)
+   !< The rest of the line (CommonMark appendix, step 3): the blank-line bookkeeping, then a lazy continuation line to
+   !< the paragraph, or the unmatched blocks closed and the rest given to the block at depth `c`, or a new paragraph.
+   type(block_parser),        intent(inout) :: p           !< Parser.
+   type(markdown_document),   intent(inout) :: doc         !< Document.
+   type(extension_slot),      intent(in)    :: slots(:)    !< Extensions of the options.
+   integer(I4P),              intent(in)    :: c           !< Depth of the block the line ended in.
+   logical,                   intent(in)    :: opened      !< A block was opened on the line.
+   logical,                   intent(in)    :: all_matched !< Every open block matched.
+   integer(I4P),              intent(inout) :: ierr        !< Status.
+   character(:), allocatable, intent(inout) :: msg         !< Message.
+   integer(I4P)                             :: n           !< Node at `c`.
+   integer(I4P)                             :: k           !< Its kind.
+   integer(I4P)                             :: last        !< Its last child.
+   integer(I4P)                             :: d           !< Depth.
+   logical                                  :: blank       !< The line counts as blank for `n`.
+
+   call p%find_nonspace()
+   n = p%open_node(c)
+   k = doc%node_kind(n)
+   ! bookkeeping for tight and loose lists (cmark's rules)
+   if (p%blank) then
+      last = last_real_child(doc, n)
+      if (last /= 0_I4P) call p%set_flag(last, FLAG_LAST_LINE_BLANK, .true.)
+   endif
+   blank = p%blank
+   if (blank .and. p%open_owner(c) == 0_I4P) then
+      select case(k)
+      case(NODE_BLOCK_QUOTE, NODE_HEADING, NODE_THEMATIC_BREAK)
+         blank = .false. ! a block quote line starts with `>`
+      case(NODE_CODE_BLOCK)
+         blank = doc%int_slot(n, SLOT_CODE_FORM) /= CODE_FENCED ! blanks in fenced code do not count
+      case(NODE_ITEM)
+         blank = first_real_child(doc, n) /= 0_I4P .or. p%open_b(c) /= p%ln ! an empty item opened on this line
+      endselect
+   endif
+   call p%set_flag(n, FLAG_LAST_LINE_BLANK, blank)
+   do d=c-1_I4P, 1_I4P, -1_I4P
+      call p%set_flag(p%open_node(d), FLAG_LAST_LINE_BLANK, .false.)
+   enddo
+   ! a lazy continuation line (CommonMark 5.1)
+   if (.not. opened .and. .not. all_matched .and. .not. p%blank .and. p%open_content(p%depth) == CONTENT_PARAGRAPH) then
+      call p%add_line()
+      p%open_last(p%depth) = p%ll
+      return
+   endif
+   if (.not. opened .and. .not. all_matched) then
+      call close_blocks(p, doc, slots, c + 1_I4P, ierr, msg)
+      if (ierr /= BARUCH_OK) return
+   endif
+   if (p%open_owner(c) > 0_I4P) then ! an extension's block: lines if it takes them, else a paragraph
+      if (p%open_content(c) == CONTENT_LINES) then
+         call p%add_line()
+         if (.not. p%line_blank) p%open_last(c) = p%ll
+      elseif (.not. p%blank) then
+         call open_paragraph(p, doc, slots, ierr, msg)
+      endif
+      return
+   endif
+   select case(k)
+   case(NODE_CODE_BLOCK)
+      call p%add_line()
+      if (.not. p%line_blank) p%open_last(c) = p%ll
+   case(NODE_HTML_BLOCK)
+      call p%add_line()
+      if (.not. p%line_blank) p%open_last(c) = p%ll
+      if (html_block_end(p%src(p%lf:p%ll), p%nonspace, p%open_a(c))) call close_blocks(p, doc, slots, c, ierr, msg)
+   case default
+      if (p%blank) then
+         ! nothing to add
+      elseif (k == NODE_PARAGRAPH .or. k == NODE_HEADING) then
+         call p%advance_bytes(p%nonspace - p%offset)
+         call p%add_line()
+         p%open_last(c) = p%ll
+      else
+         call open_paragraph(p, doc, slots, ierr, msg)
+      endif
+   endselect
+   endsubroutine add_text
 
    subroutine open_paragraph(p, doc, slots, ierr, msg)
-   !< Open a paragraph at the position, its lines starting empty.
+   !< Open a paragraph at the first non-blank byte, the rest of the line its first line.
    type(block_parser),        intent(inout) :: p        !< Parser.
    type(markdown_document),   intent(inout) :: doc      !< Document.
    type(extension_slot),      intent(in)    :: slots(:) !< Extensions of the options.
@@ -352,10 +734,13 @@ contains
 
    node = doc%new_node(NODE_PARAGRAPH, stat=ierr, errmsg=msg)
    if (ierr /= BARUCH_OK) return
-   call add_block(p, doc, slots, node, 0_I4P, CONTENT_PARAGRAPH, p%lf + p%nonspace - 1_I4P, ierr, msg)
+   call p%advance_bytes(p%nonspace - p%offset)
+   call add_block(p, doc, slots, node, 0_I4P, CONTENT_PARAGRAPH, p%lf + p%nonspace - 1_I4P, 0_I4P, 0_I4P, ierr, msg)
+   if (ierr /= BARUCH_OK) return
+   call p%add_line()
    endsubroutine open_paragraph
 
-   subroutine add_block(p, doc, slots, node, owner, content, first, ierr, msg)
+   subroutine add_block(p, doc, slots, node, owner, content, first, a, b, ierr, msg)
    !< Link a new block as the last child of the deepest open block that can hold it (the ones that cannot are closed)
    !< and push it; a block taking lines starts with none.
    type(block_parser),        intent(inout) :: p        !< Parser.
@@ -364,7 +749,9 @@ contains
    integer(I4P),              intent(in)    :: node     !< New block.
    integer(I4P),              intent(in)    :: owner    !< Its owner.
    integer(I4P),              intent(in)    :: content  !< Its content.
-   integer(I4P),              intent(in)    :: first    !< First byte of its span.
+   integer(I4P), value,       intent(in)    :: first    !< First byte of its span.
+   integer(I4P), value,       intent(in)    :: a        !< Core integer `a`.
+   integer(I4P), value,       intent(in)    :: b        !< Core integer `b` (callers pass `p%ln`).
    integer(I4P),              intent(inout) :: ierr     !< Status.
    character(:), allocatable, intent(inout) :: msg      !< Message.
 
@@ -374,25 +761,13 @@ contains
    enddo
    call doc%append_child(p%open_node(p%depth), node, stat=ierr, errmsg=msg)
    if (ierr /= BARUCH_OK) return
-   if (p%depth == size(p%open_node, kind=I4P)) then
-      call grow(p%open_node)
-      call grow(p%open_owner)
-      call grow(p%open_content)
-      call grow(p%open_first)
-      call grow(p%open_last)
-   endif
-   p%depth = p%depth + 1_I4P
-   p%open_node(p%depth) = node
-   p%open_owner(p%depth) = owner
-   p%open_content(p%depth) = content
-   p%open_first(p%depth) = first
-   p%open_last(p%depth) = p%ll
+   call p%push(node, owner, content, first, a, b)
    if (content == CONTENT_LINES .or. content == CONTENT_PARAGRAPH) p%tip_lines = 0_I4P
    endsubroutine add_block
 
    function can_hold(p, doc, slots, d, kind) result(can)
-   !< Return true if the open block at depth `d` can hold a block of `kind`: a core container holds any block (1.5: a
-   !< list holds items only), an extension's container what its `can_contain` says, a leaf nothing.
+   !< Return true if the open block at depth `d` can hold a block of `kind`: the document, a block quote and an item
+   !< hold any block, a list items only, an extension's container what its `can_contain` says, a leaf nothing.
    type(block_parser),      intent(in) :: p        !< Parser.
    type(markdown_document), intent(in) :: doc      !< Document.
    type(extension_slot),    intent(in) :: slots(:) !< Extensions of the options.
@@ -410,23 +785,27 @@ contains
       select case(doc%node_kind(p%open_node(d)))
       case(NODE_DOCUMENT, NODE_BLOCK_QUOTE, NODE_ITEM)
          can = .true.
+      case(NODE_LIST)
+         can = kind == NODE_ITEM
       endselect
    endif
    endfunction can_hold
 
    subroutine close_blocks(p, doc, slots, d_from, ierr, msg)
-   !< Close the open blocks from the tip up to depth `d_from` (deepest first): spans set, `block_close` (or the core's
-   !< finishing) called. A closed block's last byte extends its parent's.
+   !< Close the open blocks from the tip up to depth `d_from` (deepest first): spans set, the core's finishing (or
+   !< `block_close`) done. A closed block's last byte extends its parent's.
    type(block_parser),        intent(inout) :: p        !< Parser.
    type(markdown_document),   intent(inout) :: doc      !< Document.
    type(extension_slot),      intent(in)    :: slots(:) !< Extensions of the options.
-   integer(I4P),              intent(in)    :: d_from   !< Shallowest depth to close (2 or more).
+   integer(I4P), value,       intent(in)    :: d_from   !< Shallowest depth to close (2 or more): a copy, callers
+                                                         !< pass `p%depth`, which the loop changes.
    integer(I4P),              intent(inout) :: ierr     !< Status.
    character(:), allocatable, intent(inout) :: msg      !< Message.
    integer(I4P)                             :: d        !< Depth.
    integer(I4P)                             :: n        !< Node.
    integer(I4P)                             :: o        !< Owner.
    integer(I4P)                             :: lines    !< Content lines handed to the block.
+   integer(I4P)                             :: k        !< Counter.
 
    do while (p%depth >= max(2_I4P, d_from))
       d = p%depth
@@ -436,13 +815,28 @@ contains
       lines = 0_I4P
       if (p%open_content(d) == CONTENT_LINES .or. p%open_content(d) == CONTENT_PARAGRAPH) lines = p%tip_lines
       if (o > 0_I4P) then
+         do k=1, lines ! a partly consumed tab is given whole: a byte range cannot hold part of it
+            if (p%tip_pad(k) > 0_I4P) p%tip_first(k) = p%tip_first(k) - 1_I4P
+            p%tip_pad(k) = 0_I4P
+         enddo
          call slots(o)%ext%block_close(doc, n, p%tip_first(1:lines), p%tip_last(1:lines), ierr, msg)
          if (ierr /= BARUCH_OK) then
             msg = hook_message(slots, o, 'block_close', p%ln, msg)
             return
          endif
-      elseif (p%open_content(d) == CONTENT_PARAGRAPH) then
-         call finish_paragraph(p, doc, n, lines, ierr, msg)
+      else
+         select case(doc%node_kind(n))
+         case(NODE_PARAGRAPH)
+            call finish_paragraph(p, doc, n, ierr, msg)
+         case(NODE_HEADING)
+            call finish_atx_heading(p, doc, n, ierr, msg)
+         case(NODE_CODE_BLOCK)
+            call finish_code_block(p, doc, n, ierr, msg)
+         case(NODE_HTML_BLOCK)
+            call doc%set_literal(n, lines_text(p, 1_I4P, p%tip_lines), stat=ierr, errmsg=msg)
+         case(NODE_LIST)
+            call doc%set_list_tight(n, list_is_tight(p, doc, n), stat=ierr, errmsg=msg)
+         endselect
          if (ierr /= BARUCH_OK) return
       endif
       if (lines > 0_I4P) p%tip_lines = 0_I4P
@@ -451,105 +845,349 @@ contains
    enddo
    endsubroutine close_blocks
 
-   subroutine finish_paragraph(p, doc, n, lines, ierr, msg)
-   !< Finish a paragraph: its lines, their leading white space and the final trailing one stripped, joined by LF into
-   !< one text child. 1.5/2.x: the raw content kept for the inline parser, link reference definitions taken out.
-   type(block_parser),        intent(in)    :: p     !< Parser.
+   subroutine finish_paragraph(p, doc, n, ierr, msg)
+   !< Finish a paragraph: its leading link reference definitions become nodes before it; what is left is one text node
+   !< (no line left: the paragraph goes).
+   type(block_parser),        intent(inout) :: p     !< Parser.
    type(markdown_document),   intent(inout) :: doc   !< Document.
    integer(I4P),              intent(in)    :: n     !< Paragraph.
-   integer(I4P),              intent(in)    :: lines !< Its lines.
    integer(I4P),              intent(inout) :: ierr  !< Status.
    character(:), allocatable, intent(inout) :: msg   !< Message.
-   character(:), allocatable                :: text  !< Content.
-   integer(I4P)                             :: i     !< Counter.
-   integer(I4P)                             :: b     !< First byte of a line's text.
-   integer(I4P)                             :: t     !< Text node.
+   integer(I4P)                             :: first !< First byte of its text.
 
-   text = ''
-   do i=1, lines
-      b = p%tip_first(i)
-      do while (b <= p%tip_last(i))
-         if (p%src(b:b) /= ' ' .and. p%src(b:b) /= TAB) exit
-         b = b + 1_I4P
-      enddo
-      if (i > 1_I4P) text = text//LF
-      text = text//p%src(b:p%tip_last(i))
-   enddo
-   i = len(text, kind=I4P)
-   do while (i > 0_I4P)
-      if (text(i:i) /= ' ' .and. text(i:i) /= TAB) exit
-      i = i - 1_I4P
-   enddo
-   t = doc%new_node(NODE_TEXT, stat=ierr, errmsg=msg)
-   if (ierr == BARUCH_OK) call doc%set_literal(t, text(1:i), stat=ierr, errmsg=msg)
-   if (ierr == BARUCH_OK) call doc%set_span(t, doc%span_first(n), doc%span_last(n), stat=ierr, errmsg=msg)
-   if (ierr == BARUCH_OK) call doc%append_child(n, t, stat=ierr, errmsg=msg)
+   call extract_definitions(p, doc, n, ierr, msg)
+   if (ierr /= BARUCH_OK) return
+   if (p%tip_lines == 0_I4P) then
+      call doc%unlink(n, stat=ierr, errmsg=msg)
+      p%tombstones = .true.
+      return
+   endif
+   first = first_nonspace(p, 1_I4P)
+   call doc%set_span(n, first, p%tip_last(p%tip_lines), stat=ierr, errmsg=msg)
+   if (ierr == BARUCH_OK) call add_text_node(doc, n, paragraph_text(p), first, p%tip_last(p%tip_lines), ierr, msg)
    endsubroutine finish_paragraph
 
-   subroutine add_line(p)
-   !< Give the rest of the line, from the offset, to the tip.
-   type(block_parser), intent(inout) :: p !< Parser.
+   subroutine finish_atx_heading(p, doc, n, ierr, msg)
+   !< Finish an ATX heading: its line without the trailing white space and the closing sequence (a run of `#` after a
+   !< space or a tab, or the whole content), whose length is recorded; the rest is one text node.
+   type(block_parser),        intent(inout) :: p       !< Parser.
+   type(markdown_document),   intent(inout) :: doc     !< Document.
+   integer(I4P),              intent(in)    :: n       !< Heading.
+   integer(I4P),              intent(inout) :: ierr    !< Status.
+   character(:), allocatable, intent(inout) :: msg     !< Message.
+   integer(I4P)                             :: a, b    !< Bytes of the content.
+   integer(I4P)                             :: k       !< Byte.
+   integer(I4P)                             :: closing !< Closing `#`s.
 
-   if (p%tip_lines == size(p%tip_first, kind=I4P)) then
-      call grow(p%tip_first)
-      call grow(p%tip_last)
-   endif
-   p%tip_lines = p%tip_lines + 1_I4P
-   p%tip_first(p%tip_lines) = p%lf + p%offset - 1_I4P
-   p%tip_last(p%tip_lines) = p%ll
-   endsubroutine add_line
-
-   subroutine find_nonspace(p)
-   !< Find the first byte at or after the offset that is not a space or a tab, its indentation in columns, and
-   !< whether the rest of the line is blank.
-   type(block_parser), intent(inout) :: p      !< Parser.
-   integer(I4P)                      :: i      !< Byte of the line.
-   integer(I4P)                      :: col    !< Its column.
-
-   i = p%offset
-   col = p%column
-   do while (p%lf + i - 1_I4P <= p%ll)
-      select case(p%src(p%lf + i - 1_I4P:p%lf + i - 1_I4P))
-      case(' ')
-         col = col + 1_I4P
-      case(TAB)
-         col = col + 4_I4P - mod(col, 4_I4P)
-      case default
-         exit
-      endselect
-      i = i + 1_I4P
-   enddo
-   p%nonspace = i
-   p%indent = col - p%column
-   p%blank = p%lf + i - 1_I4P > p%ll
-   endsubroutine find_nonspace
-
-   subroutine advance(p, bytes)
-   !< Consume bytes of the line: the offset moves, the column follows (a tab to the next stop of 4, a UTF-8
-   !< continuation byte none, any other byte one). 1.5: a tab consumed by columns, partly.
-   type(block_parser), intent(inout) :: p     !< Parser.
-   integer(I4P),       intent(in)    :: bytes !< Bytes to consume.
-   integer(I4P)                      :: k     !< Counter.
-   integer                           :: c     !< Byte value.
-
-   do k=1, bytes
-      c = iachar(p%src(p%lf + p%offset - 1_I4P:p%lf + p%offset - 1_I4P))
-      if (c == 9) then
-         p%column = p%column + 4_I4P - mod(p%column, 4_I4P)
-      elseif (c < 128 .or. c >= 192) then
-         p%column = p%column + 1_I4P
+   closing = 0_I4P
+   if (p%tip_lines > 0_I4P) then
+      a = p%tip_first(1)
+      b = p%tip_last(1)
+      do while (b >= a)
+         if (.not. is_space_or_tab(p%src(b:b))) exit
+         b = b - 1_I4P
+      enddo
+      k = b
+      do while (k >= a)
+         if (p%src(k:k) /= '#') exit
+         k = k - 1_I4P
+      enddo
+      if (k < a) then ! only #s: all closing sequence
+         closing = b - k
+         b = a - 1_I4P
+      elseif (k < b .and. is_space_or_tab(p%src(k:k))) then
+         closing = b - k
+         b = k
+         do while (b >= a)
+            if (.not. is_space_or_tab(p%src(b:b))) exit
+            b = b - 1_I4P
+         enddo
       endif
-      p%offset = p%offset + 1_I4P
+      if (b >= a) call add_text_node(doc, n, p%src(a:b), a, b, ierr, msg)
+   endif
+   if (ierr == BARUCH_OK) call doc%set_int_slot(n, SLOT_HEADING_CLOSING, closing, stat=ierr, errmsg=msg)
+   endsubroutine finish_atx_heading
+
+   subroutine finish_code_block(p, doc, n, ierr, msg)
+   !< Finish a code block: a fenced one's first line is its info string (trimmed, backslash escapes processed), the
+   !< other lines its literal; an indented one drops its trailing blank lines. Each line of the literal ends with LF.
+   type(block_parser),        intent(inout) :: p     !< Parser.
+   type(markdown_document),   intent(inout) :: doc   !< Document.
+   integer(I4P),              intent(in)    :: n     !< Code block.
+   integer(I4P),              intent(inout) :: ierr  !< Status.
+   character(:), allocatable, intent(inout) :: msg   !< Message.
+   integer(I4P)                             :: a, b  !< Bytes of the info string.
+   integer(I4P)                             :: last  !< Last line of the literal.
+   integer(I4P)                             :: k     !< Byte.
+
+   if (doc%int_slot(n, SLOT_CODE_FORM) == CODE_FENCED) then
+      if (p%tip_lines > 0_I4P) then
+         a = p%tip_first(1)
+         b = p%tip_last(1)
+         do while (a <= b)
+            if (.not. is_space_or_tab(p%src(a:a))) exit
+            a = a + 1_I4P
+         enddo
+         do while (b >= a)
+            if (.not. is_space_or_tab(p%src(b:b))) exit
+            b = b - 1_I4P
+         enddo
+         if (b >= a) call doc%set_info(n, backslash_unescape(p%src(a:b)), stat=ierr, errmsg=msg)
+      endif
+      if (ierr == BARUCH_OK) call doc%set_literal(n, lines_text(p, 2_I4P, p%tip_lines), stat=ierr, errmsg=msg)
+   else
+      last = p%tip_lines
+      do while (last > 0_I4P)
+         k = p%tip_first(last)
+         do while (k <= p%tip_last(last))
+            if (.not. is_space_or_tab(p%src(k:k))) exit
+            k = k + 1_I4P
+         enddo
+         if (k <= p%tip_last(last)) exit
+         last = last - 1_I4P
+      enddo
+      call doc%set_literal(n, lines_text(p, 1_I4P, last), stat=ierr, errmsg=msg)
+   endif
+   endsubroutine finish_code_block
+
+   function list_is_tight(p, doc, list) result(tight)
+   !< Return true if a list is tight (CommonMark 5.3, cmark's rule): no item but the last ends with a blank line, and
+   !< no two children of an item (or the last child of an item not the last) are separated by one. Link reference
+   !< definitions do not count as children.
+   type(block_parser),      intent(inout) :: p     !< Parser.
+   type(markdown_document), intent(in)    :: doc   !< Document.
+   integer(I4P),            intent(in)    :: list  !< List.
+   logical                                :: tight !< Result.
+   integer(I4P)                           :: item  !< Item.
+   integer(I4P)                           :: sub   !< Child of an item.
+   integer(I4P)                           :: next  !< Next real sibling of `sub`.
+
+   tight = .true.
+   item = doc%first_child(list)
+   do while (item /= 0_I4P)
+      if (p%flag(item, FLAG_LAST_LINE_BLANK) .and. doc%next_sibling(item) /= 0_I4P) then
+         tight = .false.
+         return
+      endif
+      sub = first_real_child(doc, item)
+      do while (sub /= 0_I4P)
+         next = next_real_sibling(doc, sub)
+         if (doc%next_sibling(item) /= 0_I4P .or. next /= 0_I4P) then
+            if (ends_with_blank_line(p, doc, sub)) then
+               tight = .false.
+               return
+            endif
+         endif
+         sub = next
+      enddo
+      item = doc%next_sibling(item)
    enddo
-   endsubroutine advance
+   endfunction list_is_tight
 
-   pure function remaining(p) result(bytes)
-   !< Return the bytes of the line not consumed.
-   type(block_parser), intent(in) :: p     !< Parser.
-   integer(I4P)                   :: bytes !< Bytes.
+   function ends_with_blank_line(p, doc, node) result(blank)
+   !< Return true if a block ends with a blank line, descending into the last child of lists and items (cmark's
+   !< `S_ends_with_blank_line`, iterative, the answer cached per node).
+   type(block_parser),      intent(inout) :: p     !< Parser.
+   type(markdown_document), intent(in)    :: doc   !< Document.
+   integer(I4P),            intent(in)    :: node  !< Block.
+   logical                                :: blank !< Result.
+   integer(I4P)                           :: n     !< Current block.
+   integer(I4P)                           :: last  !< Its last child.
 
-   bytes = p%ll - (p%lf + p%offset - 1_I4P) + 1_I4P
-   endfunction remaining
+   n = node
+   do
+      if (p%flag(n, FLAG_LAST_LINE_CHECKED)) exit
+      call p%set_flag(n, FLAG_LAST_LINE_CHECKED, .true.)
+      if (doc%node_kind(n) /= NODE_LIST .and. doc%node_kind(n) /= NODE_ITEM) exit
+      last = last_real_child(doc, n)
+      if (last == 0_I4P) exit
+      n = last
+   enddo
+   blank = p%flag(n, FLAG_LAST_LINE_BLANK)
+   endfunction ends_with_blank_line
+
+   subroutine extract_definitions(p, doc, para, ierr, msg)
+   !< Take the link reference definitions at the start of the paragraph's lines out of them: each one a node in place,
+   !< before the paragraph (CommonMark 4.7). A definition takes whole lines.
+   type(block_parser),        intent(inout) :: p           !< Parser.
+   type(markdown_document),   intent(inout) :: doc         !< Document.
+   integer(I4P),              intent(in)    :: para        !< Paragraph.
+   integer(I4P),              intent(inout) :: ierr        !< Status.
+   character(:), allocatable, intent(inout) :: msg         !< Message.
+   character(:), allocatable                :: text        !< The lines, white space stripped, each ended by LF.
+   character(:), allocatable                :: destination !< Destination.
+   character(:), allocatable                :: title       !< Title.
+   integer(I4P)                             :: pos         !< Position in `text`.
+   integer(I4P)                             :: next        !< Position after a definition.
+   integer(I4P)                             :: label_first !< First byte of the label.
+   integer(I4P)                             :: label_last  !< Last byte of the label.
+   integer(I4P)                             :: k           !< First line of a definition.
+   integer(I4P)                             :: lines       !< Lines of a definition.
+   integer(I4P)                             :: j           !< Counter.
+   integer(I4P)                             :: def         !< Definition node.
+
+   if (p%tip_lines == 0_I4P) return
+   if (p%src(first_nonspace(p, 1_I4P):first_nonspace(p, 1_I4P)) /= '[') return
+   text = lines_text(p, 1_I4P, p%tip_lines, strip=.true.)
+   pos = 1_I4P
+   k = 1_I4P
+   do while (pos <= len(text, kind=I4P))
+      if (text(pos:pos) /= '[') exit
+      call parse_definition(text, pos, next, label_first, label_last, destination, title)
+      if (next == 0_I4P) exit
+      lines = 0_I4P
+      do j=pos, next - 1_I4P
+         if (text(j:j) == LF) lines = lines + 1_I4P
+      enddo
+      def = doc%new_node(NODE_LINK_REFERENCE_DEFINITION, stat=ierr, errmsg=msg)
+      if (ierr == BARUCH_OK) call doc%insert_before(para, def, stat=ierr, errmsg=msg)
+      if (ierr == BARUCH_OK) call doc%set_label(def, text(label_first:label_last), stat=ierr, errmsg=msg)
+      if (ierr == BARUCH_OK) call doc%set_destination(def, destination, stat=ierr, errmsg=msg)
+      if (ierr == BARUCH_OK) call doc%set_title(def, title, stat=ierr, errmsg=msg)
+      if (ierr == BARUCH_OK) call doc%set_span(def, first_nonspace(p, k), p%tip_last(k + lines - 1_I4P), stat=ierr, &
+                                               errmsg=msg)
+      if (ierr /= BARUCH_OK) return
+      k = k + lines
+      pos = next
+   enddo
+   call p%drop_lines(k - 1_I4P)
+   endsubroutine extract_definitions
+
+   subroutine add_text_node(doc, parent, text, first, last, ierr, msg)
+   !< Append a text node of a literal and a span to a block.
+   type(markdown_document),   intent(inout) :: doc    !< Document.
+   integer(I4P),              intent(in)    :: parent !< Block.
+   character(*),              intent(in)    :: text   !< Literal.
+   integer(I4P),              intent(in)    :: first  !< First byte of its span.
+   integer(I4P),              intent(in)    :: last   !< Last byte of its span.
+   integer(I4P),              intent(inout) :: ierr   !< Status.
+   character(:), allocatable, intent(inout) :: msg    !< Message.
+   integer(I4P)                             :: t      !< Text node.
+
+   t = doc%new_node(NODE_TEXT, stat=ierr, errmsg=msg)
+   if (ierr == BARUCH_OK) call doc%set_literal(t, text, stat=ierr, errmsg=msg)
+   if (ierr == BARUCH_OK) call doc%set_span(t, first, last, stat=ierr, errmsg=msg)
+   if (ierr == BARUCH_OK) call doc%append_child(parent, t, stat=ierr, errmsg=msg)
+   endsubroutine add_text_node
+
+   function paragraph_text(p) result(text)
+   !< Return the text of the tip's lines: each without its leading white space, joined by LF, the final trailing white
+   !< space removed.
+   type(block_parser), intent(in) :: p    !< Parser.
+   character(:), allocatable      :: text !< Text.
+   integer(I4P)                   :: n    !< Length.
+
+   text = lines_text(p, 1_I4P, p%tip_lines, strip=.true.)
+   n = len(text, kind=I4P)
+   do while (n > 0_I4P)
+      if (.not. (is_space_or_tab(text(n:n)) .or. text(n:n) == LF)) exit
+      n = n - 1_I4P
+   enddo
+   text = text(1:n)
+   endfunction paragraph_text
+
+   function lines_text(p, from, to, strip) result(text)
+   !< Return the tip's lines `from` to `to`, each followed by LF: its pad as spaces then its bytes, or (`strip`) its
+   !< bytes from the first that is not a space or a tab. Sized first, filled once.
+   type(block_parser), intent(in)           :: p     !< Parser.
+   integer(I4P),       intent(in)           :: from  !< First line.
+   integer(I4P),       intent(in)           :: to    !< Last line.
+   logical,            intent(in), optional :: strip !< Strip the leading white space.
+   character(:), allocatable                :: text  !< Text.
+   integer(I4P)                             :: k     !< Line.
+   integer(I4P)                             :: n     !< Length.
+   integer(I4P)                             :: a     !< First byte of a line.
+   integer(I4P)                             :: pad   !< Spaces before it.
+   logical                                  :: strip_ !< Strip, local.
+
+   strip_ = .false.
+   if (present(strip)) strip_ = strip
+   n = 0_I4P
+   do k=from, to
+      call line_bounds(k, a, pad)
+      n = n + pad + max(0_I4P, p%tip_last(k) - a + 1_I4P) + 1_I4P
+   enddo
+   allocate(character(n) :: text)
+   n = 0_I4P
+   do k=from, to
+      call line_bounds(k, a, pad)
+      text(n+1:n+pad) = repeat(' ', pad)
+      n = n + pad
+      if (p%tip_last(k) >= a) then
+         text(n+1:n+p%tip_last(k)-a+1) = p%src(a:p%tip_last(k))
+         n = n + p%tip_last(k) - a + 1_I4P
+      endif
+      text(n+1:n+1) = LF
+      n = n + 1_I4P
+   enddo
+   contains
+      subroutine line_bounds(k, a, pad)
+      !< First byte and pad of line `k`.
+      integer(I4P), intent(in)  :: k   !< Line.
+      integer(I4P), intent(out) :: a   !< First byte.
+      integer(I4P), intent(out) :: pad !< Pad.
+
+      if (strip_) then
+         a = first_nonspace(p, k)
+         pad = 0_I4P
+      else
+         a = p%tip_first(k)
+         pad = p%tip_pad(k)
+      endif
+      endsubroutine line_bounds
+   endfunction lines_text
+
+   pure function first_nonspace(p, k) result(b)
+   !< Return the first byte of the tip's line `k` that is not a space or a tab (past its last byte if none).
+   type(block_parser), intent(in) :: p !< Parser.
+   integer(I4P),       intent(in) :: k !< Line.
+   integer(I4P)                   :: b !< Byte.
+
+   b = p%tip_first(k)
+   do while (b <= p%tip_last(k))
+      if (.not. is_space_or_tab(p%src(b:b))) exit
+      b = b + 1_I4P
+   enddo
+   endfunction first_nonspace
+
+   function first_real_child(doc, n) result(c)
+   !< Return the first child of a node that is not a link reference definition, 0 if none.
+   type(markdown_document), intent(in) :: doc !< Document.
+   integer(I4P),            intent(in) :: n   !< Node.
+   integer(I4P)                        :: c   !< Child.
+
+   c = doc%first_child(n)
+   do while (c /= 0_I4P)
+      if (doc%node_kind(c) /= NODE_LINK_REFERENCE_DEFINITION) exit
+      c = doc%next_sibling(c)
+   enddo
+   endfunction first_real_child
+
+   function last_real_child(doc, n) result(c)
+   !< Return the last child of a node that is not a link reference definition, 0 if none.
+   type(markdown_document), intent(in) :: doc !< Document.
+   integer(I4P),            intent(in) :: n   !< Node.
+   integer(I4P)                        :: c   !< Child.
+
+   c = doc%last_child(n)
+   do while (c /= 0_I4P)
+      if (doc%node_kind(c) /= NODE_LINK_REFERENCE_DEFINITION) exit
+      c = doc%prev_sibling(c)
+   enddo
+   endfunction last_real_child
+
+   function next_real_sibling(doc, n) result(s)
+   !< Return the next sibling of a node that is not a link reference definition, 0 if none.
+   type(markdown_document), intent(in) :: doc !< Document.
+   integer(I4P),            intent(in) :: n   !< Node.
+   integer(I4P)                        :: s   !< Sibling.
+
+   s = doc%next_sibling(n)
+   do while (s /= 0_I4P)
+      if (doc%node_kind(s) /= NODE_LINK_REFERENCE_DEFINITION) exit
+      s = doc%next_sibling(s)
+   enddo
+   endfunction next_real_sibling
 
    subroutine contract(slots, o, hook, ln, why, ierr, msg)
    !< Report a hook contract violation.
@@ -580,16 +1218,6 @@ contains
       if (len(why) > 0) msg = msg//': '//why
    endif
    endfunction hook_message
-
-   pure subroutine grow(a)
-   !< Double an integer array, keeping its values.
-   integer(I4P), allocatable, intent(inout) :: a(:) !< Array.
-   integer(I4P), allocatable                :: b(:) !< Grown copy.
-
-   allocate(b(2_I4P * max(1_I4P, size(a, kind=I4P))))
-   b(1:size(a)) = a
-   call move_alloc(b, a)
-   endsubroutine grow
 
    pure function istr(i) result(s)
    !< Return an integer as text.

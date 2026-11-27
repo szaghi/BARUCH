@@ -14,9 +14,9 @@ Another paragraph.
 ```
 
 ::: info Status
-The block parser is a frame for now (plan step 1.3): it calls the extensions' block hooks, and a line no extension
-claims is paragraph text. The CommonMark blocks (headings, lists, code...) arrive in step 1.5; the extension below
-works unchanged then.
+The block parser offers every position to the extensions' block hooks before CommonMark's own starts (headings,
+lists, code...: [chapter 3](./03-read)), so an extension can take syntax away from the core. The inline hooks come
+with phase 2.
 :::
 
 ## The type

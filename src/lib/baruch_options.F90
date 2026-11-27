@@ -9,7 +9,7 @@ module baruch_options
 !<
 !< `parse` reads the document's source (loaded by `markdown_document%load` or `load_file`) into its tree: the tree is
 !< reset to its root, the enabled extensions register their kinds in the document, the block parser runs
-!< (`baruch_blocks`; plan step 1.3: the frame driving the extensions' block hooks, CommonMark blocks in step 1.5).
+!< (`baruch_blocks`: the CommonMark block structure, the extensions' block hooks tried before the core's starts).
 !< The encoding, the line ending and the canonical output of the writer join the options in later steps.
 use penf,             only : I4P
 use baruch_document,  only : markdown_document

@@ -6,8 +6,9 @@ module baruch
 !< pool, and the sanitised source it is loaded from with its line index), the options (`markdown_options`: the
 !< extensions registered and enabled, and `parse`), the extension interface (`markdown_extension`, its hooks, and
 !< the `BLOCK_*`, `CONTENT_*` values they answer with), the node kinds with the slot layout and style values
-!< (`NODE_*`, `SLOT_*`, `STRING_*`, ...), and the status codes (`BARUCH_OK`, `BARUCH_ERR_*`). The CommonMark parser,
-!< the renderer and the writers are added behind this module, step by step.
+!< (`NODE_*`, `SLOT_*`, `STRING_*`, ...), and the status codes (`BARUCH_OK`, `BARUCH_ERR_*`). `markdown_options%parse`
+!< builds the CommonMark block structure (`baruch_blocks`); the inline parser, the renderer and the writers are added
+!< behind this module, step by step.
 !<
 !< Kinds come from PENF and text from StringiFor, used here so that the library archive holds them; neither is
 !< re-exported, a client uses them directly.

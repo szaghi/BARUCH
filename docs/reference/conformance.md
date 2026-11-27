@@ -87,9 +87,10 @@ loads the Markdown (`load_file`), parses it (`markdown_options%parse`, no extens
 that cannot be read, parsed or written is reported on standard error and gets no output, so it fails. A suite with
 extensions passes `--extension NAME` for each.
 
-The HTML comes from a single procedure of the driver, `render_html`. There is no renderer before plan step 1.6, so
-for now it writes an empty string: the only example that passes is the one whose expected HTML is empty (example 207,
-a lone link reference definition).
+The HTML comes from a single procedure of the driver, `render_html`. The library's renderer arrives with plan step
+1.6; until then `render_html` calls a minimal serialiser of the block tree that lives with the driver and is test code,
+not API (`src/tests/spec/baruch_spec_html.F90`): the blocks as cmark writes them, the inline content of paragraphs and
+headings as HTML-escaped text. Step 1.6 replaces it with the public renderer.
 
 The driver lives in `src/tests/spec/`, so the test modes build it into `exe/` with every compiler; run with no
 argument it does nothing and exits 0, and `scripts/run_tests.sh` (which runs every program of `exe/` that way) counts
@@ -140,21 +141,21 @@ those a block parser with an HTML renderer that writes inline content as escaped
 Code blocks and HTML blocks may contain any character: their content is decided by the block parser alone. The rule
 selects **237** of the 652 examples:
 
-| Section | Examples | In the subset |
-|---|---|---|
-| Tabs | 11 | 11 |
-| Thematic breaks | 19 | 15 |
-| ATX headings | 18 | 15 |
-| Setext headings | 27 | 20 |
-| Indented code blocks | 12 | 12 |
-| Fenced code blocks | 29 | 26 |
-| HTML blocks | 44 | 32 |
-| Paragraphs | 8 | 7 |
-| Blank lines | 1 | 1 |
-| Block quotes | 25 | 25 |
-| List items | 48 | 47 |
-| Lists | 26 | 26 |
-| **total** | **268** | **237** |
+| Section | Examples | In the subset | Subset passed (1.5) | All passed (1.5) |
+|---|---|---|---|---|
+| Tabs | 11 | 11 | 11 | 11 |
+| Thematic breaks | 19 | 15 | 15 | 18 |
+| ATX headings | 18 | 15 | 15 | 15 |
+| Setext headings | 27 | 20 | 20 | 22 |
+| Indented code blocks | 12 | 12 | 12 | 12 |
+| Fenced code blocks | 29 | 26 | 26 | 26 |
+| HTML blocks | 44 | 32 | 32 | 35 |
+| Paragraphs | 8 | 7 | 7 | 7 |
+| Blank lines | 1 | 1 | 1 | 1 |
+| Block quotes | 25 | 25 | 25 | 25 |
+| List items | 48 | 47 | 47 | 48 |
+| Lists | 26 | 26 | 26 | 26 |
+| **total** | **268** | **237** | **237** | **246** |
 
 The rule is conservative: it never selects an example that needs inline parsing, and it may leave out one that would
 pass. Checked when the rule was written (a local check, not part of the harness) with markdown-it 14.1.0, CommonMark
@@ -170,3 +171,9 @@ decreases from one step to the next (a standing gate of the plan).
 | Step | CommonMark (652) | Blocks-only (237) | |
 |---|---|---|---|
 | 1.4 | 1 | 0 | no renderer yet: the empty output matches example 207 only |
+| 1.5 | 342 | 237 | the block parser, through the driver's test-only block serialiser; the same counts with every compiler and mode |
+
+At 1.5 every failing example fails on inline syntax only (emphasis, code spans, links and their resolution,
+backslash escapes, character references, raw inline HTML, hard line breaks): the block structure of all 652 examples
+was checked against markdown-it-py 3.0.0 (CommonMark mode, inline rules off; a local check, not part of the harness),
+and the one difference is a character reference in an info string, decoded with the entity table of plan step 2.2.

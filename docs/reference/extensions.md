@@ -8,11 +8,10 @@ Every syntax beyond CommonMark goes through this interface, BARUCH's own extensi
 and 6) as much as a client's. The core is CommonMark only; extensions are compiled in and enabled per parse. A worked
 example: [tutorial chapter 2](/manual/tutorial/02-extension).
 
-::: info Status (plan step 1.3)
-Every hook is declared with its default. The **block** hooks are live: the block parser calls them on every line.
-The block parser itself is a frame: a line no extension claims is paragraph text, a blank line ends a paragraph;
-the CommonMark block starts come in step 1.5. The inline hooks and `post_process` are called from step 2.5, the
-output hooks from steps 1.6 (HTML, walk) and 3.2 (Markdown).
+::: info Status (plan step 1.5)
+Every hook is declared with its default. The **block** hooks are live: the CommonMark block parser
+([Blocks](/reference/blocks)) calls them on every line, an extension's starts before the core's. The inline hooks and
+`post_process` are called from step 2.5, the output hooks from steps 1.6 (HTML, walk) and 3.2 (Markdown).
 :::
 
 ## The options

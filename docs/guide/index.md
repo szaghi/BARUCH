@@ -5,18 +5,20 @@ document tree and writes a tree back to Markdown, in pure Fortran.
 
 ::: warning Status
 Implemented so far: the document tree (`markdown_document`, [reference](/reference/document)), its input (loading
-any text or file as sanitised UTF-8, [reference](/reference/input)) and the extension interface with the options that
-hold the extensions (`markdown_extension`, `markdown_options`, [reference](/reference/extensions)), whose block hooks a
-block-parser frame drives, and the conformance harness that runs the 652 CommonMark examples
-([reference](/reference/conformance)); the CommonMark parser is not written yet. This page
+any text or file as sanitised UTF-8, [reference](/reference/input)), the extension interface with the options that
+hold the extensions (`markdown_extension`, `markdown_options`, [reference](/reference/extensions)), the CommonMark
+block parser, which records the source style and calls the extensions' block hooks ([reference](/reference/blocks)),
+and the conformance harness that runs the 652 CommonMark examples ([reference](/reference/conformance)); the inline
+parser, the HTML renderer and the writers are not written yet. This page
 states the design the code is being written to: everything below is **planned** unless it says otherwise. The plan,
 step by step, is [szaghi/BARUCH#1](https://github.com/szaghi/BARUCH/issues/1).
 :::
 
 ## What it is for
 
-- **Reader** (planned): CommonMark 0.31.2, checked against the 652 examples of the specification. The block structure
-  is parsed first, the inline content of each block second, as the specification describes it.
+- **Reader** (block phase written, inlines planned): CommonMark 0.31.2, checked against the 652 examples of the
+  specification. The block structure is parsed first ([Blocks](/reference/blocks)), the inline content of each block
+  second, as the specification describes it.
 - **HTML renderer** (planned): an HTML fragment by default (no `<html>` wrapper, no external CSS or JavaScript, ready to
   embed in a page), a standalone document on option.
 - **Tree writer** (planned): the tree back to Markdown. The round trip is semantic: re-reading what BARUCH writes gives

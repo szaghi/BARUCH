@@ -141,8 +141,8 @@ there. Characters are stored as their ASCII code, `iachar`.
 | extension kinds | the extension's own | 1 `STRING_LITERAL` by convention, the rest the extension's own |
 | document, block_quote, item, paragraph, softbreak, linebreak | | |
 
-Slots no constant names are free: the block parser (plan step 1.5) and the inline parser (phase 2) add rows to this
-table as they record more.
+Slots no constant names are free. The block parser records the style slots above and no other
+([Blocks](/reference/blocks#style-slots)); the inline parser (phase 2) adds rows to this table as it records more.
 
 ## Typed accessors
 

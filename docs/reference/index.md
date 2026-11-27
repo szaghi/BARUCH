@@ -14,7 +14,7 @@ the code; each public entity gets its row in the step that adds it. The rules ev
 |---|---|---|---|
 | `markdown_document` | type | the document: the flat node arrays, the string pool, the typed accessors | [The document](/reference/document) |
 | | | its source: loading from text, a `string` or a file, sanitised UTF-8, the lines | [Input](/reference/input) |
-| `markdown_options` | type | what a parse does: the extensions registered and enabled by name; `parse` | [Extensions](/reference/extensions#the-options) |
+| `markdown_options` | type | what a parse does: the extensions registered and enabled by name; `parse` | [Extensions](/reference/extensions#the-options), [Blocks](/reference/blocks#parsing) |
 | `markdown_extension` | abstract type | the extension interface: the hooks and their defaults | [Extensions](/reference/extensions#the-hooks) |
 | `BLOCK_*`, `CONTENT_*` | constants | what the block hooks answer | [Extensions](/reference/extensions#constants) |
 | `NODE_*` | constants | the node kinds, one per CommonMark node type, and the ranges | [Kinds](/reference/document#kinds) |
@@ -39,7 +39,7 @@ The procedures are type-bound methods of these types.
 | | [Input](/reference/input) | loading from text, a `string` or a file; sanitising, encodings, line endings | 1.2 |
 | | [Extensions](/reference/extensions) | the hooks, their contract, registered kinds, the options | 1.3 |
 | | [Conformance](/reference/conformance) | how to run the spec suite, what is normalised, the pinned version and counts | 1.4 |
-| | Blocks | the block kinds and their fields | 1.5 |
+| | [Blocks](/reference/blocks) | the block kinds, their fields and style slots, what `parse` builds | 1.5 |
 | | HTML | the renderer: fragment and standalone output | 1.6 |
 | | Walk | the events and their offsets | 1.6 |
 | 2. Inlines | Conformance | the pinned HTML5 entity table; the pathological inputs | 2.2, 2.6 |

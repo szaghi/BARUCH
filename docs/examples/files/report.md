@@ -1,0 +1,25 @@
+# Field report #
+
+Measured on the *rig* yesterday;
+the values are below.
+
+Results
+-------
+
+1) pressure
+2) temperature
+   - inlet
+   - outlet
+
+~~~ fortran
+print *, 'p = ', p
+~~~
+
+> Calibrated against the
+reference probe.
+
+***
+
+[probe]: https://example.org/probe "Probe sheet"
+
+<!-- written by the rig -->

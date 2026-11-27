@@ -1,7 +1,8 @@
 # Quick start
 
-The reader, the renderer and the writers are not written yet ([About](/guide/)): this page shows how a program uses
-the library today, and grows with it.
+The block structure is read ([tutorial chapter 3](/manual/tutorial/03-read)); inline content, the renderer and the
+writers are not written yet ([About](/guide/)). This page shows how a program uses the library today, and grows with
+it.
 
 ## A first program
 
