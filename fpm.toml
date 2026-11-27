@@ -34,3 +34,8 @@ git = "https://github.com/szaghi/StringiFor"
 name = "baruch_test_toolchain"
 source-dir = "src/tests"
 main = "baruch_test_toolchain.F90"
+
+[[test]]
+name = "baruch_test_document"
+source-dir = "src/tests"
+main = "baruch_test_document.F90"

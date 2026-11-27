@@ -1,0 +1,42 @@
+$ t01_document
+The document:
+document
+  heading level=1
+    text "BARUCH"
+  paragraph
+    text "A "
+    emph
+      text "flat"
+    text " tree."
+  list tight=yes marker=-
+    item
+      paragraph
+        text "one"
+    item
+      paragraph
+        text "two"
+nodes: 15
+
+heading_level of a paragraph: 0, stat 3
+markdown_document%heading_level: node 11 is a paragraph, not a heading
+
+after unlink: nodes 15, last handle 18
+item(1) is still a node: F
+after compact: nodes 15, last handle 15
+the new item, handle 16, is now 13
+
+document
+  heading level=1
+    text "BARUCH"
+  paragraph
+    text "A "
+    emph
+      text "flat"
+    text " tree."
+  list tight=yes marker=-
+    item
+      paragraph
+        text "zero"
+    item
+      paragraph
+        text "two"

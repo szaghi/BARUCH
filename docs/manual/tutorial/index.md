@@ -5,13 +5,13 @@ can compile and run: the code and its output on every page are generated from `d
 `scripts/docs_examples.sh`.
 
 ::: info Planned
-No chapter is written yet: each one arrives with the step of the plan ([szaghi/BARUCH#1](https://github.com/szaghi/BARUCH/issues/1))
-that makes it possible. Until then, the [Quick start](/guide/quickstart) shows how a program uses the library.
+Each chapter arrives with the step of the plan ([szaghi/BARUCH#1](https://github.com/szaghi/BARUCH/issues/1)) that
+makes it possible; the ones not linked below are not written yet.
 :::
 
 | Chapter | What it shows | Plan step |
 |---|---|---|
-| A document by hand | build a tree node by node, read it back through the accessors, edit and compact it | 1.1 |
+| [1. A document by hand](./01-document) | build a tree node by node, read it back through the accessors, edit and compact it | 1.1 |
 | Write an extension | a `%%` block extension through the public interface, its block hooks | 1.3 (inline hooks: 2.5) |
 | Read a document | parse a file, inspect the tree | 1.5 |
 | Render HTML | an HTML fragment and a standalone page; the walk's events | 1.6 |

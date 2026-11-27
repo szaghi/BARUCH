@@ -16,14 +16,16 @@ const docs = [
     { text: 'Conventions',  link: '/guide/conventions' },
   ] },
   { text: 'Tutorial', items: [
-    { text: 'All chapters', link: '/manual/tutorial/' },
+    { text: 'All chapters',          link: '/manual/tutorial/' },
+    { text: '1. A document by hand', link: '/manual/tutorial/01-document' },
   ] },
   { text: 'Cookbook', items: [
     { text: 'All recipes', link: '/manual/cookbook' },
   ] },
   { text: 'Reference', items: [
-    { text: 'At a glance', link: '/reference/' },
-    { text: 'API',         link: '/api/' },
+    { text: 'At a glance',  link: '/reference/' },
+    { text: 'The document', link: '/reference/document' },
+    { text: 'API',          link: '/api/' },
   ] },
   { text: 'Project', items: [
     { text: 'Contributing', link: '/guide/contributing' },

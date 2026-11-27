@@ -1,0 +1,12 @@
+! a third item before the first, then the first unlinked: a tombstone until compact
+zero = doc%new_node(NODE_ITEM)
+call doc%prepend_child(l, zero)
+p = doc%new_node(NODE_PARAGRAPH)
+call doc%append_child(zero, p)
+call add_text(p, 'zero')
+call doc%unlink(item(1))
+print '(A,I0,A,I0)', 'after unlink: nodes ', doc%nodes_number(), ', last handle ', doc%last_node()
+print '(A,L1)', 'item(1) is still a node: ', doc%is_node(item(1))
+call doc%compact(map=map)
+print '(A,I0,A,I0)', 'after compact: nodes ', doc%nodes_number(), ', last handle ', doc%last_node()
+print '(A,I0,A,I0)', 'the new item, handle ', zero, ', is now ', map(zero)
