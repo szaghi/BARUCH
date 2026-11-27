@@ -142,8 +142,9 @@ there. Characters are stored as their ASCII code, `iachar`.
 | document, block_quote, item, paragraph, softbreak, linebreak | | |
 
 Slots no constant names are free. The block parser records the style slots above and no other
-([Blocks](/reference/blocks#style-slots)); the inline parser records `LINK_AUTOLINK` in `SLOT_LINK_FORM` of an
-autolink ([Inlines](/reference/inlines)), the other link forms and `SLOT_EMPHASIS_CHAR` from plan step 2.4.
+([Blocks](/reference/blocks#style-slots)); the inline parser records `SLOT_EMPHASIS_CHAR` of emphasis and strong
+emphasis ([Inlines](/reference/inlines#emphasis)), `SLOT_LINK_FORM` of every link and image and, for the three
+reference forms, the label as written in `STRING_LABEL` ([Links and references](/reference/links#the-form-and-the-label)).
 
 ## Typed accessors
 

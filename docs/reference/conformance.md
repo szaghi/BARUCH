@@ -227,6 +227,7 @@ decreases from one step to the next (a standing gate of the plan).
 | 1.5 | 342 | 237 | the block parser, through the driver's test-only block serialiser; the same counts with every compiler and mode |
 | 1.6 | 342 | 237 | the public HTML renderer (`render_html_file`) in place of the serialiser; the same counts with gfortran, nvfortran and ifx, debug modes included |
 | 2.3 | 439 | 237 | the inline parser: escapes, character references, code spans, autolinks, raw HTML, line breaks; the same counts with gfortran (`tests-gnu-debug`), nvfortran (`tests-nvf`) and ifx (`tests-intel-debug`) |
+| 2.4 | **652** | 237 | emphasis, links, images, reference resolution ([Links and references](/reference/links)): every example passes, all 652 exact (no normalisation needed); the same counts with gfortran (`tests-gnu`, `tests-gnu-debug`), nvfortran (`tests-nvf`) and ifx (`tests-intel-debug`) |
 
 At 1.5 every failing example fails on inline syntax only (emphasis, code spans, links and their resolution,
 backslash escapes, character references, raw inline HTML, hard line breaks): the block structure of all 652 examples
@@ -251,4 +252,24 @@ which step 2.4 writes.
 
 The other inline sections pass what needs no emphasis and no link: Emphasis and strong emphasis 45/132, Links 22/90,
 Images 2/22, Link reference definitions 10/27 (their use is a link), Inlines 1/1.
+
+### Step 2.4: every section at 100%
+
+Step 2.4 writes the delimiter algorithm, links, images and the resolution of references: the eight examples left
+by 2.3 (15, 22, 23, 32, 33, 37, 638, 639) pass, and so does every other one.
+
+| Section | Passed | Total |
+|---|---|---|
+| Emphasis and strong emphasis | 132 | 132 |
+| Links | 90 | 90 |
+| Images | 22 | 22 |
+| Link reference definitions | 27 | 27 |
+| Backslash escapes | 13 | 13 |
+| Entity and numeric character references | 17 | 17 |
+| Hard line breaks | 15 | 15 |
+| every other section | all | all |
+| **total** | **652** | **652** |
+
+The pathological inputs (plan step 2.6) are measured there; the parser keeps cmark's devices for them already
+([Inlines](/reference/inlines#how-it-is-built)).
 

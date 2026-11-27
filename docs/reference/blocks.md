@@ -77,7 +77,7 @@ fails or breaks the hook contract, or memory runs out.
   5 end on the line meeting their end condition (`</script>`, `</pre>`, `</style>`, `</textarea>`, `-->`, `?>`, `>`,
   `]]>`), which belongs to the block; types 6 and 7 end before a blank line.
 - **Link reference definitions** are nodes in place, before the paragraph they were read from (a paragraph made of
-  definitions only goes): the `label` as written between the brackets (matching normalises it, plan step 2.4); the
+  definitions only goes): the `label` as written between the brackets (matching normalises it: [Links and references](/reference/links#matching-a-label)); the
   `destination` without its `<>`, the `title` without its delimiters, both with their backslash escapes and character
   references processed. A
   definition cannot interrupt a paragraph, and under a setext underline a paragraph's definitions come out first (an

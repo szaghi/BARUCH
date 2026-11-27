@@ -39,14 +39,14 @@ What the tree shows:
 - `# Field report #` is a level-1 ATX heading with one closing `#`, which is not part of its text; `Results` over
   `-------` is a level-2 setext heading.
 - A paragraph or a heading holds its **inline content**: the line ending between the paragraph's two lines is a
-  `softbreak` between two texts ([chapter 5](./05-inlines) shows the other inline nodes). `*rig*` is still text:
-  emphasis and links are parsed from plan step 2.4.
+  `softbreak` between two texts ([chapter 5](./05-inlines) shows the other inline nodes). `*rig*` is emphasis: an
+  `emph` node holding the text `rig`.
 - `1)` items make an ordered list from 1 with the `)` delimiter; the `-` items indented under `temperature` are a list
   inside its item. Both lists are tight: no blank line between their items.
 - The code block keeps its `~~~` fence and its info string `fortran`; its literal ends with LF.
 - `reference probe.` has no `>` but continues the quoted paragraph: a **lazy continuation line**.
 - The link reference definition is a node in place, its label as written, its destination and title without their
-  delimiters. Links will be resolved against it from plan step 2.4.
+  delimiters. A `[probe]` in the text would be a link to it (the label matches whatever its case).
 - The HTML comment is an HTML block, its literal verbatim.
 
 ## Spans: back to the source

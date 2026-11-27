@@ -33,6 +33,7 @@ const docs = [
     { text: 'Extensions',   link: '/reference/extensions' },
     { text: 'Blocks',       link: '/reference/blocks' },
     { text: 'Inlines',      link: '/reference/inlines' },
+    { text: 'Links and references', link: '/reference/links' },
     { text: 'HTML',         link: '/reference/html' },
     { text: 'Walk',         link: '/reference/walk' },
     { text: 'Conformance',  link: '/reference/conformance' },
@@ -48,7 +49,7 @@ export default withMermaid({
   title: 'BARUCH',
   description: 'Bidirectional AST Reader and Unparser for CommonMark, Hookable: a pure Fortran Markdown parser and emitter, with opt-in GFM and VitePress extensions',
   base: '/BARUCH/',
-  srcExclude: ['ford.md'],
+  srcExclude: ['ford.md', 'examples/**'], // examples/files/*.md are the examples' input documents, not pages
 
   markdown: {
     math: true,

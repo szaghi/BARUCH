@@ -8,6 +8,10 @@ program baruch_test_inlines
 !< of raw inline HTML, hard and soft line breaks, text merged into one node per run (delimiter runs and brackets that
 !< open nothing included), spans that point at the source through container markers, character references and
 !< backslash escapes in info strings, destinations and titles (one pass), and a parsed tree free of tombstones.
+!< Plan step 2.4: emphasis (the flanking rules with Unicode white space and punctuation, the rule of 3, the character
+!< recorded, the spans of what a match leaves), links and images (inline, full, collapsed, shortcut: the form and the
+!< label recorded), reference labels normalised (case folding, white space), the first definition winning, links
+!< not nesting.
 use baruch
 use penf, only : I4P
 implicit none
@@ -25,6 +29,8 @@ call test_raw_html
 call test_breaks
 call test_spans
 call test_block_strings
+call test_emphasis
+call test_links
 if (failures > 0) then
    print '(A,I0,A)', 'baruch_test_inlines: ', failures, ' failure(s)'
    error stop 1
@@ -226,6 +232,126 @@ contains
    call check(doc%title(n) == 't&amp; "', 'strings: title "'//doc%title(n)//'"')
    call check(doc%label(n) == 'a', 'strings: the label as written')
    endsubroutine test_block_strings
+
+   subroutine test_emphasis()
+   !< Emphasis and strong emphasis: both characters, the rule of 3, Unicode punctuation and white space around a run,
+   !< the character recorded, the spans of the new nodes and of the delimiters left.
+   character(*), parameter :: NBSP = char(194)//char(160)   !< U+00A0, Unicode White_Space.
+   character(*), parameter :: LAQUO = char(194)//char(171)  !< U+00AB, Unicode punctuation (Pi).
+   character(*), parameter :: RAQUO = char(194)//char(187)  !< U+00BB, Unicode punctuation (Pf).
+   type(markdown_document) :: doc !< Document.
+   integer(I4P)            :: b   !< Block.
+   integer(I4P)            :: n   !< Node.
+
+   call expect_tree('*a* _b_ **c** __d__', 'emph*(text:a)|text: |emph_(text:b)|text: |strong*(text:c)|text: |'// &
+                    'strong_(text:d)', 'emphasis: both characters, recorded')
+   call expect_tree('*foo**bar**baz*', 'emph*(text:foo|strong*(text:bar)|text:baz)', 'emphasis: the rule of 3')
+   call expect_tree('***a***', 'emph*(strong*(text:a))', 'emphasis: three characters')
+   call expect_tree('**a*', 'text:*|emph*(text:a)', 'emphasis: a character left')
+   call expect_tree('foo_bar_ *a _b* c_', 'text:foo_bar_ |emph*(text:a _b)|text: c_', 'emphasis: intraword _, overlap')
+   call expect_tree('a*'//LAQUO//'b'//RAQUO//'*c', 'text:a*'//LAQUO//'b'//RAQUO//'*c', &
+                    'emphasis: Unicode punctuation around the runs')
+   call expect_tree('*'//NBSP//'a*', 'text:*'//NBSP//'a*', 'emphasis: Unicode white space after the run')
+   call parse(doc, 'x ***a** b*')
+   b = first_block(doc)
+   n = doc%next_sibling(doc%first_child(b))
+   call check(doc%node_kind(n) == NODE_EMPH .and. span_of(doc, n) == '***a** b*', &
+              'emphasis: the span of emphasis "'//span_of(doc, n)//'"')
+   n = doc%first_child(n)
+   call check(doc%node_kind(n) == NODE_STRONG .and. span_of(doc, n) == '**a**', &
+              'emphasis: the span of strong emphasis "'//span_of(doc, n)//'"')
+   call check(doc%int_slot(n, SLOT_EMPHASIS_CHAR) == iachar('*'), 'emphasis: SLOT_EMPHASIS_CHAR')
+   call parse(doc, '**a*')
+   n = doc%first_child(first_block(doc))
+   call check(span_of(doc, n) == '*' .and. doc%span_first(n) == 1, 'emphasis: the span of the character left')
+   endsubroutine test_emphasis
+
+   subroutine test_links()
+   !< Links and images: the four forms, destination, title, label as written, normalised matching, the first definition
+   !< winning, no link in a link, spans.
+   character(*), parameter :: SHARP_S = char(225)//char(186)//char(158) !< U+1E9E, folds to `ss`.
+   type(markdown_document) :: doc !< Document.
+   integer(I4P)            :: b   !< Block.
+   integer(I4P)            :: n   !< Node.
+
+   call expect_tree('[a *b*](</u v> "t")', 'link[1,,/u v,t](text:a |emph*(text:b))', 'links: inline')
+   call expect_tree('[a]()', 'link[1,,,](text:a)', 'links: inline, empty destination')
+   call expect_tree('[x][Foo  '//LF//'Bar]'//LF//LF//'[foo bar]: /v "w"', 'link[2,Foo  '//LF//'Bar,/v,w](text:x)', &
+                    'links: full, the label normalised')
+   call expect_tree('[Foo bar][]'//LF//LF//'[foo bar]: /v', 'link[3,Foo bar,/v,](text:Foo bar)', 'links: collapsed')
+   call expect_tree('[Foo bar]'//LF//LF//'[foo bar]: /v', 'link[4,Foo bar,/v,](text:Foo bar)', 'links: shortcut')
+   call expect_tree('['//SHARP_S//']'//LF//LF//'[SS]: /s', 'link[4,'//SHARP_S//',/s,](text:'//SHARP_S//')', &
+                    'links: Unicode case folding')
+   call expect_tree('[a]'//LF//LF//'[A]: /first'//LF//'[a]: /second', 'link[4,a,/first,](text:a)', &
+                    'links: the first definition wins')
+   call expect_tree('[a][b] [b]'//LF//LF//'[a]: /a', 'text:[a][b] [b]', 'links: an undefined label is text')
+   call expect_tree('[a [b](/c)](/d)', 'text:[a |link[1,,/c,](text:b)|text:](/d)', 'links: no link in a link')
+   call expect_tree('![a *b*](/i "t")', 'image[1,,/i,t](text:a |emph*(text:b))', 'images: inline')
+   call expect_tree('[![a](/i)](/l)', 'link[1,,/l,](image[1,,/i,](text:a))', 'images: in a link')
+   call parse(doc, 'x [a](/u) ![b][c] y'//LF//LF//'[c]: /c')
+   b = first_block(doc)
+   n = doc%next_sibling(doc%first_child(b))
+   call check(doc%node_kind(n) == NODE_LINK .and. span_of(doc, n) == '[a](/u)', 'links: span "'//span_of(doc, n)//'"')
+   n = doc%next_sibling(doc%next_sibling(n))
+   call check(doc%node_kind(n) == NODE_IMAGE .and. span_of(doc, n) == '![b][c]', &
+              'images: span "'//span_of(doc, n)//'"')
+   call check(doc%int_slot(n, SLOT_LINK_FORM) == LINK_FULL .and. doc%label(n) == 'c', 'images: form and label')
+   endsubroutine test_links
+
+   subroutine expect_tree(source, expected, label)
+   !< Parse a source and check the subtree of its first block that is not a definition.
+   character(*), intent(in) :: source   !< Markdown.
+   character(*), intent(in) :: expected !< Expected tree.
+   character(*), intent(in) :: label    !< What is checked.
+   type(markdown_document)  :: doc      !< Document.
+
+   call parse(doc, source)
+   call check(tree_of(doc, first_block(doc)) == expected, label//': "'//tree_of(doc, first_block(doc))//'"')
+   endsubroutine expect_tree
+
+   function tree_of(doc, top) result(text)
+   !< Return the subtree under `top`, walked by its links: `kind:literal` for a leaf, `kind(children)` for a node with
+   !< children; emphasis followed by its character, a link or an image by `[form,label,destination,title]`.
+   type(markdown_document), intent(in) :: doc  !< Document.
+   integer(I4P),            intent(in) :: top  !< Root of the subtree.
+   character(:), allocatable           :: text !< Description.
+   integer(I4P)                        :: n    !< Node.
+   integer(I4P)                        :: k    !< Kind.
+   character                           :: c    !< A character slot (fixed length: szaghi/BARUCH#2 B3).
+
+   text = ''
+   n = doc%first_child(top)
+   do while (n /= 0_I4P)
+      k = doc%node_kind(n)
+      select case(k)
+      case(NODE_TEXT, NODE_CODE, NODE_HTML_INLINE)
+         text = text//doc%kind_name(k)//':'//doc%literal(n)
+      case(NODE_EMPH, NODE_STRONG)
+         c = achar(doc%int_slot(n, SLOT_EMPHASIS_CHAR))
+         text = text//doc%kind_name(k)//c
+      case(NODE_LINK, NODE_IMAGE)
+         c = achar(48 + doc%int_slot(n, SLOT_LINK_FORM))
+         text = text//doc%kind_name(k)//'['//c//','//doc%label(n)//','//doc%destination(n)//','//doc%title(n)//']'
+      case default
+         text = text//doc%kind_name(k)
+      endselect
+      if (doc%first_child(n) /= 0_I4P) then
+         text = text//'('
+         n = doc%first_child(n)
+         cycle
+      endif
+      do while (n /= top)
+         if (doc%next_sibling(n) /= 0_I4P) then
+            text = text//'|'
+            n = doc%next_sibling(n)
+            exit
+         endif
+         n = doc%parent(n)
+         if (n /= top) text = text//')'
+      enddo
+      if (n == top) exit
+   enddo
+   endfunction tree_of
 
    subroutine check(condition, label)
    !< Count a failed check and print it.

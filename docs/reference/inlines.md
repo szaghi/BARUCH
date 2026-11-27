@@ -6,15 +6,12 @@ section 6), one node per construct, children of the block, each with its span in
 reads the tree through [the document](/reference/document)'s accessors. A worked example:
 [tutorial chapter 5](/manual/tutorial/05-inlines).
 
-::: info Status (plan step 2.3)
+::: info Status (plan steps 2.3, 2.4)
 Written: backslash escapes, entity and numeric character references, code spans, autolinks, raw inline HTML, hard and
-soft line breaks, textual content. The sections Code spans, Autolinks, Raw HTML, Soft line breaks and Textual content
-of the spec pass 100%; Backslash escapes, Entity and numeric character references and Hard line breaks pass every
-example but the eight that need emphasis or links ([Conformance](/reference/conformance#counts)).
-
-**Plan step 2.4** completes the parser: emphasis and strong emphasis (`NODE_EMPH`, `NODE_STRONG`), links and images
-(`NODE_LINK`, `NODE_IMAGE`, inline and reference forms) and the resolution of references against the link reference
-definitions. Until then `*`, `_`, `[`, `![` and `]` are text.
+soft line breaks, textual content (2.3); emphasis and strong emphasis, links and images in their four forms, the
+resolution of references against the link reference definitions (2.4, links and images on their own page:
+[Links and references](/reference/links)). Every inline section of the spec passes 100%, the whole suite 652/652
+([Conformance](/reference/conformance#counts)). The inline hooks of the extensions are plan step 2.5.
 :::
 
 ## When it runs
@@ -22,7 +19,8 @@ definitions. Until then `*`, `_`, `[`, `![` and `]` are text.
 `parse` runs the block phase ([Blocks](/reference/blocks)), then the inline phase over every paragraph and heading:
 the block parser leaves in each one text node holding its content (its lines without their leading white space,
 joined by LF, the trailing white space of the last removed), and the inline parser replaces it with the inline nodes.
-All the link reference definitions of the document are known by then, as references need (step 2.4). The tree is
+All the link reference definitions of the document are known by then, as references need: the inline phase
+collects them first ([Links and references](/reference/links#reference-definitions)). The tree is
 compacted at the end, so a parsed document has no tombstone; the handles follow the order the nodes were created in
 (blocks first, then each block's inline nodes), not the document order: walk the links.
 
@@ -39,6 +37,10 @@ block parser's.
 | `NODE_LINK` (autolink) | `<scheme:...>`, `<address@domain>` | `destination`: the URL, or `mailto:` and the address, references decoded; `title` empty; `SLOT_LINK_FORM` = `LINK_AUTOLINK`; one `NODE_TEXT` child, the URL or the address | `<` to `>` (its text: inside them) |
 | `NODE_LINEBREAK` | two or more spaces, or a backslash, then a line ending | none | the spaces (or the backslash) and the line ending |
 | `NODE_SOFTBREAK` | a line ending | none | the line ending's first byte |
+| `NODE_EMPH` | `*text*`, `_text_` | `SLOT_EMPHASIS_CHAR` (style): `*` or `_` (`iachar`); children: the emphasised content | the delimiters included |
+| `NODE_STRONG` | `**text**`, `__text__` | as emphasis | the delimiters included |
+| `NODE_LINK` | `[text](destination "title")`, `[text][label]`, `[label][]`, `[label]` | `destination`, `title`, `label`, `SLOT_LINK_FORM`; children: the link text ([Links and references](/reference/links)) | `[` to the last `)` or `]` |
+| `NODE_IMAGE` | `![description](...)` and the same three reference forms | as a link; children: the description, whose plain text is the alt text | `!` to the last `)` or `]` |
 
 `literal`, `destination` and `title` are the accessors of [the document](/reference/document#typed-accessors); the
 renderer writes these kinds as [HTML](/reference/html#what-is-written) describes.
@@ -46,8 +48,8 @@ renderer writes these kinds as [HTML](/reference/html#what-is-written) describes
 ### Text
 
 Text is **merged**: one node per run of text, whatever it is made of. `a\*b &amp; c` is one text node, `a*b & c`. A
-run ends at another inline node (a code span, raw HTML, an autolink, a line break) or at the end of the block. Text
-holds what the source means, its span what was written.
+run ends at another inline node (a code span, raw HTML, a link, emphasis, a line break) or at the end of the block.
+Text holds what the source means, its span what was written.
 
 - **Backslash escapes** (spec 2.4): a backslash before an ASCII punctuation character is that character
   (``\*``, ``\` ``, ``\\``...); a backslash before anything else is a backslash. Not in code spans, autolinks or raw
@@ -86,6 +88,29 @@ optional `/`, `>`), a **closing tag** (`</name>`), a **comment** (`<!-->`, `<!--
 (`<![CDATA[` to `]]>`). White space in a tag may include line endings. What is not one of them is text: `<` and the
 rest read on.
 
+### Emphasis
+
+A run of `*` or of `_` (a **delimiter run**: as many of the same character as follow each other, not escaped) can
+open emphasis, close it, both or neither, by what is around it (spec 6.2):
+
+- it is **left-flanking** when the character after it is not white space, and either not punctuation or preceded by
+  white space or punctuation; **right-flanking** the other way round. White space is Unicode White_Space (U+00A0,
+  U+3000... too), punctuation is Unicode punctuation and symbols (General Categories P and S: `«`, `—`, `€` too),
+  both through StringiFor (`is_space(unicode=.true.)`, `is_punct(unicode=.true.)`); the start and the end of the
+  block count as white space;
+- a `*` run opens when left-flanking and closes when right-flanking; a `_` run opens when left-flanking and either
+  not right-flanking or preceded by punctuation, and closes symmetrically: `snake_case_name` holds no emphasis.
+
+Matching follows the spec's appendix: each closer, left to right, takes the nearest opener of the same character
+before it, unless one of them can both open and close and the sum of the two runs' lengths (as written) is a multiple
+of 3 while they are not both multiples of 3 (the **rule of 3**: `*foo**bar**baz*` is emphasis around a strong
+`bar`). Two characters from each make strong emphasis when both runs have two left, else one makes emphasis; the
+rest of a run is matched again or stays text (`**a*` is the text `*` and emphasis around `a`). Emphasis nests in
+the order the closers come: `***a***` is emphasis around strong emphasis.
+
+The node records the character (`SLOT_EMPHASIS_CHAR`), so a writer gives back `_a_` as `_a_`. Its span runs from the
+first delimiter it uses to the last; a run's leftover characters are a text whose span is just them.
+
 ### Line breaks
 
 A line ending inside a paragraph or a heading is a **soft break**; preceded by two or more spaces, or by a backslash,
@@ -110,7 +135,7 @@ The block parser stores the **info string** of a fenced code block and the **des
 reference definition with their backslash escapes **and** character references processed, in one pass left to right
 (`unescape_string`): `` ``` f&ouml;\* `` has the info string `fö*`; `\&amp;` is `&amp;` (the escape makes `&` a
 character, which then starts no reference), `&#92;*` is `\*` (a reference's bytes are not read again). The label of a
-definition is kept as written: matching a reference normalises it (step 2.4).
+definition is kept as written: matching a reference normalises it ([Links and references](/reference/links#matching-a-label)).
 
 ## How it is built
 
@@ -122,11 +147,19 @@ block.
   text is found with `scan` for the next special byte (LF, `` ` ``, `\`, `&`, `<`, `*`, `_`, `[`, `]`, `!`); a node's
   literal is a slice or the few bytes a construct stands for. Text is accumulated and written as one node when
   something else comes.
-- **The delimiter stack** holds the runs of `*` and `_` (each a text node of its own): character, count, original
-  count, can open, can close, linked both ways through indices so that a run can be removed from its middle. **The
-  bracket stack** holds the `[` and `![` (each a text node too): position, image or not, active, a bracket after it,
-  the delimiter below it. Step 2.3 builds and maintains both; `process_emphasis` only clears the delimiters and a `]`
-  only pops its bracket. Step 2.4 adds the flanking rules, the matching and the link resolution.
+- **The delimiter stack** holds the runs of `*` and `_` that can open or close (each a text node of its own):
+  character, count left, original count, first offset left, can open, can close, linked both ways through indices so
+  that a run can leave from its middle. **The bracket stack** holds the `[` and `![` (each a text node too): position,
+  image or not, active, a bracket after it, the first delimiter pushed after it.
+- **Emphasis** is matched by cmark's `process_emphasis`: forward over the closers, back to an opener. A closer that
+  finds none raises the lower bound of later searches for its key (character, can open, original length modulo 3:
+  `openers_bottom`), so no opener is looked at twice for nothing: linear. The nodes between a matched opener and
+  closer move under the new node, which is linked last (no ancestor walk per child). A run's text node is rewritten
+  once, when the run leaves the stack, to the characters no match used.
+- **Links** are resolved at `]` against the top bracket only; a link deactivates the `[` below it, the walk stopping
+  at the first inactive one; a shortcut label is looked up only when no bracket was pushed inside it, and a
+  `[label]` after `]` is scanned for at most 999 characters (cmark's devices). The references are a hash table
+  ([Links and references](/reference/links#reference-definitions)).
 - **Merging.** After a block, adjacent text nodes (runs and brackets that matched nothing) are merged, one pass over
   the block's subtree, each run's literal built once.
 - **Linear time.** A code span's closer is searched for once: where the last backtick string of each length (up to

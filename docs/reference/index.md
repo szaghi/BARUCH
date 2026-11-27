@@ -46,8 +46,8 @@ The procedures are type-bound methods of these types.
 | | [HTML](/reference/html) | the renderer: fragment and standalone output, sinks, extension hooks | 1.6 |
 | | [Walk](/reference/walk) | the events and their offsets | 1.6 |
 | 2. Inlines | [Conformance](/reference/conformance#the-html5-entity-table) | the pinned HTML5 entity table; the pathological inputs | 2.2, 2.6 |
-| | [Inlines](/reference/inlines) | the inline kinds and their fields, spans, what step 2.4 completes | 2.3 |
-| | Links and references | links, images, reference definitions | 2.4 |
+| | [Inlines](/reference/inlines) | the inline kinds and their fields, spans, the emphasis algorithm | 2.3, 2.4 |
+| | [Links and references](/reference/links) | links, images, reference definitions, label matching, the forms recorded | 2.4 |
 | | Extensions | the inline hooks | 2.5 |
 | 3. The tree writer | Equality | what tree equality compares and ignores | 3.1 |
 | | Writer | recorded style, canonical mode, escaping | 3.2 |

@@ -23,10 +23,10 @@ Text is handled with [StringiFor](https://github.com/szaghi/StringiFor) and kind
 [PENF](https://github.com/szaghi/PENF), both fetched by `fobis fetch`.
 
 Work in progress: the document tree, its input, the extension interface, the CommonMark block parser (the block
-structure of CommonMark 0.31.2, source style recorded), the inline parser but for emphasis and links (escapes,
-character references, code spans, autolinks, raw HTML, line breaks), the HTML renderer and the event walk are written,
-with the conformance harness that runs the 652 CommonMark 0.31.2 examples (`bash scripts/spec.sh commonmark`);
-emphasis, links and the writers are not yet. The plan is [#1](https://github.com/szaghi/BARUCH/issues/1).
+structure of CommonMark 0.31.2, source style recorded), the inline parser (escapes, character references, code
+spans, autolinks, raw HTML, line breaks, emphasis, links, images, references), the HTML renderer and the event walk
+are written, with the conformance harness that runs the 652 CommonMark 0.31.2 examples
+(`bash scripts/spec.sh commonmark`: 652/652); the writers are not yet. The plan is [#1](https://github.com/szaghi/BARUCH/issues/1).
 
 ## Quick start
 

@@ -4,11 +4,11 @@ The HTML renderer: a document's tree written as cmark writes it, as an HTML frag
 `markdown_options` (the options hold the extensions, whose nodes their own hooks write); module `baruch_html`
 (internal: a client calls the methods). A worked example: [tutorial chapter 4](/manual/tutorial/04-render).
 
-::: info Status (plan step 2.3)
+::: info Status (plan step 2.4)
 Every core kind is written, blocks and inlines. A parsed paragraph or heading holds the inline nodes of
-[Inlines](/reference/inlines): text, code spans, raw HTML, autolinks, line breaks; emphasis, links and images are
-parsed from plan step 2.4 (until then `*emphasis*` is text), and a tree built by hand with them is written in full. The conformance driver renders through this renderer:
-[Conformance](/reference/conformance#counts).
+[Inlines](/reference/inlines) and [Links and references](/reference/links): text, code spans, raw HTML, autolinks,
+line breaks, emphasis, links and images. The conformance driver renders through this renderer:
+[Conformance](/reference/conformance#counts) (652/652).
 :::
 
 ## Methods

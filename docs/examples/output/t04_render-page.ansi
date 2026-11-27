@@ -7,7 +7,7 @@ $ cat report.html
 </head>
 <body>
 <h1>Field report</h1>
-<p>Measured on the *rig* yesterday;
+<p>Measured on the <em>rig</em> yesterday;
 the values are below.</p>
 <h2>Results</h2>
 <ol>

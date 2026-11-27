@@ -9,6 +9,11 @@ Not code: \`dt\`, not a tag: 3 < 4 &copy;\
 a hard break above, a soft one below
 and a comment: <!-- the end -->
 
+Read *the* **solver notes** in [the _wiki_][Notes] or
+![the plot](img/r.png "Residuals"); a * alone is text.
+
+[notes]: https://example.org/notes
+
 heading
   text         3-6       "Run "
   code         7-10      "42"
@@ -22,10 +27,12 @@ paragraph
   html_inline  60-63     "</b>"
   text         64-68     ", see"
   softbreak    69-69     
-  link         72-112    -> https://example.org/dt?step=1&max=9  "https://example.org/dt?step=1&max=9"
+  link         72-112    -> https://example.org/dt?step=1&max=9
+    text       73-111    "https://example.org/dt?step=1&max=9"
   linebreak    113-115   
   text         118-129   "or write to "
-  link         130-147   -> mailto:help@example.org  "help@example.org"
+  link         130-147   -> mailto:help@example.org
+    text       131-146   "help@example.org"
   text         148-148   "."
 paragraph
   text         151-191   "Not code: `dt`, not a tag: 3 < 4 ©"
@@ -34,6 +41,23 @@ paragraph
   softbreak    230-230   
   text         231-245   "and a comment: "
   html_inline  246-261   "<!-- the end -->"
+paragraph
+  text         264-268   "Read "
+  emph         269-273   *
+    text       270-272   "the"
+  text         274-274   " "
+  strong       275-290   *
+    text       277-288   "solver notes"
+  text         291-294   " in "
+  link         295-313   -> https://example.org/notes
+    text       296-299   "the "
+    emph       300-305   _
+      text     301-304   "wiki"
+  text         314-316   " or"
+  softbreak    317-317   
+  image        318-351   -> img/r.png  title "Residuals"
+    text       320-327   "the plot"
+  text         352-371   "; a * alone is text."
 
 <h1>Run <code>42</code> — done</h1>
 <blockquote>
@@ -44,3 +68,5 @@ or write to <a href="mailto:help@example.org">help@example.org</a>.</p>
 <p>Not code: `dt`, not a tag: 3 &lt; 4 ©<br />
 a hard break above, a soft one below
 and a comment: <!-- the end --></p>
+<p>Read <em>the</em> <strong>solver notes</strong> in <a href="https://example.org/notes">the <em>wiki</em></a> or
+<img src="img/r.png" alt="the plot" title="Residuals" />; a * alone is text.</p>

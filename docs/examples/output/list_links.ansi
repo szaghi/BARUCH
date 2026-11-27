@@ -1,0 +1,25 @@
+$ list_links
+ 3    link       full https://doi.org/10.0000/solver
+                      text  "the paper"
+                      title "The paper"
+                      label "paper"
+ 3    link     inline https://example.org/solver
+                      text  "the project site"
+                      title "Home"
+ 4    link  collapsed https://example.org/releases/latest
+                      text  "latest release"
+                      label "latest release"
+ 4    link   shortcut https://example.org/faq (draft)
+                      text  "FAQ"
+                      label "FAQ"
+ 6   image     inline img/residual.png
+                      text  "Convergence of the residuals"
+                      title "Residuals"
+ 8    link   autolink mailto:help@example.org
+                      text  "help@example.org"
+ 8    link   autolink https://example.org/forum
+                      text  "https://example.org/forum"
+11    link     inline https://ci.example/solver
+                      text  "build status"
+11   image     inline https://img.example/ci.svg
+                      text  "build status"

@@ -1,6 +1,6 @@
 $ t04_render
 <h1>Field report</h1>
-<p>Measured on the *rig* yesterday;
+<p>Measured on the <em>rig</em> yesterday;
 the values are below.</p>
 <h2>Results</h2>
 <ol>
@@ -25,4 +25,4 @@ report.html written, stat 0
 
 heading 1 at bytes 1-16: "Field report"
 heading 2 at bytes 75-89: "Results"
-blocks entered 20, left 20, texts 12
+blocks entered 20, left 20, texts 14

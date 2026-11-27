@@ -18,7 +18,12 @@ source = '# Run `42` &mdash; done'//LF//                                 &
          LF//                                                          &
          'Not code: '//BS//'`dt'//BS//'`, not a tag: 3 < 4 &copy;'//BS//LF// &
          'a hard break above, a soft one below'//LF//                  &
-         'and a comment: <!-- the end -->'//LF
+         'and a comment: <!-- the end -->'//LF//                        &
+         LF//                                                          &
+         'Read *the* **solver notes** in [the _wiki_][Notes] or'//LF//  &
+         '![the plot](img/r.png "Residuals"); a * alone is text.'//LF// &
+         LF//                                                          &
+         '[notes]: https://example.org/notes'//LF
 print '(A)', source
 call doc%load(source)
 call options%parse(doc)
@@ -35,31 +40,49 @@ write(*, '(A)', advance='no') html
 
 contains
    subroutine print_inlines(block)
-   !< Print the inline nodes of a paragraph or a heading (a block quote: of its paragraph) with their bytes.
+   !< Print the inline nodes of a paragraph or a heading (a block quote: of its paragraph) with their bytes, the
+   !< children of an emphasis, a link or an image indented under it (a walk of the block's subtree).
    integer, intent(in) :: block !< Block.
    integer             :: b     !< The block holding the inline nodes.
-   integer             :: n     !< An inline node.
+   integer             :: n     !< The walk's node.
+   integer             :: e     !< The walk's event.
+   integer             :: depth !< Spans entered.
 
    b = block
    if (doc%node_kind(b) == NODE_BLOCK_QUOTE) b = doc%first_child(b)
+   if (doc%node_kind(b) /= NODE_PARAGRAPH .and. doc%node_kind(b) /= NODE_HEADING) return
    print '(A)', doc%kind_name(doc%node_kind(b))
-   n = doc%first_child(b)
-   do while (n /= 0)
-      print '(A)', '  '//pad(doc%kind_name(doc%node_kind(n)))//pad(at(n), 9)//what(n)
-      n = doc%next_sibling(n)
+   depth = 0
+   n = 0
+   do
+      call options%walk(doc, n, e, top=b)
+      if (n == 0) exit
+      select case(e)
+      case(EVENT_ENTER_SPAN, EVENT_TEXT)
+         print '(A)', repeat('  ', depth + 1)//pad(doc%kind_name(doc%node_kind(n)), 12 - 2 * depth)//pad(at(n), 9)// &
+                      what(n)
+         if (e == EVENT_ENTER_SPAN) depth = depth + 1
+      case(EVENT_LEAVE_SPAN)
+         depth = depth - 1
+      endselect
    enddo
    endsubroutine print_inlines
 
    function what(n) result(text)
-   !< What an inline node holds: a literal, or a link's destination and text.
+   !< What an inline node holds: a literal, a link's or an image's destination and title, an emphasis' character.
    integer, intent(in)       :: n    !< Node.
    character(:), allocatable :: text !< Description.
+   character                 :: c    !< An emphasis character.
 
    select case(doc%node_kind(n))
    case(NODE_TEXT, NODE_CODE, NODE_HTML_INLINE)
       text = '"'//doc%literal(n)//'"'
-   case(NODE_LINK)
-      text = '-> '//doc%destination(n)//'  "'//doc%literal(doc%first_child(n))//'"'
+   case(NODE_LINK, NODE_IMAGE)
+      text = '-> '//doc%destination(n)
+      if (len(doc%title(n)) > 0) text = text//'  title "'//doc%title(n)//'"'
+   case(NODE_EMPH, NODE_STRONG)
+      c = achar(doc%int_slot(n, SLOT_EMPHASIS_CHAR))
+      text = c
    case default
       text = ''
    endselect

@@ -1,14 +1,14 @@
 # 5. Inline content
 
-Chapter 3 read the blocks of a document; inside each paragraph and heading there is more: code spans, links, raw
-HTML, character references, line breaks. `parse` reads them too, after the blocks, into **inline nodes**: children of
+Chapter 3 read the blocks of a document; inside each paragraph and heading there is more: code spans, emphasis,
+links, images, raw HTML, character references, line breaks. `parse` reads them too, after the blocks, into **inline nodes**: children of
 the paragraph or heading, each with its kind, its content and its bytes in the source. This chapter parses a short
 document, prints the inline nodes of each block, and renders it.
 
-::: info Plan step 2.3
-Written now: backslash escapes, entity and numeric character references, code spans, autolinks, raw inline HTML,
-hard and soft line breaks, text. Emphasis, links and images (`*rig*`, `[text](url)`, `![alt](src)`) are plan step
-2.4: until then they stay text. [Inlines](/reference/inlines) has the details.
+::: info Plan steps 2.3 and 2.4
+Written: backslash escapes, entity and numeric character references, code spans, autolinks, raw inline HTML, hard and
+soft line breaks, text (2.3); emphasis, links and images, the references resolved (2.4). [Inlines](/reference/inlines)
+and [Links and references](/reference/links) have the details.
 :::
 
 ## Parse
@@ -22,9 +22,10 @@ document above is built from a string (`load`), so the example needs no file.
 
 <<< @/examples/snippets/t05_inlines-inlines.f90
 
-Each block's children are its inline nodes, in order; `print_inlines` (in the whole program below) prints each one's
-kind, its span and what it holds: the `literal` of a text, a code span or raw HTML, the `destination` of a link and
-the literal of its text child.
+Each block's children are its inline nodes, in order. Emphasis, links and images have children of their own, so
+`print_inlines` (in the whole program below) walks the block's subtree (`walk` with `top=`) and indents a node under
+the span it is in; it prints each node's kind, its span and what it holds: the `literal` of a text, a code span or
+raw HTML, the `destination` (and `title`) of a link or an image, the character of an emphasis.
 
 ## Render
 
@@ -54,6 +55,13 @@ What the tree shows:
   inline nodes' spans skip it (`or write to` starts at byte 118, after the `> ` at 116-117), so each span is the exact
   bytes of its node in the source. A line break's span is its spaces or backslash and the line ending.
 - A heading holds inline nodes too: `Run `, the code `42`, ` — done`.
+- **Emphasis** is a span with children: `*the*` is an `emph`, `**solver notes**` a `strong`, each recording its
+  character (`*` or `_`, `SLOT_EMPHASIS_CHAR`); its span covers the delimiters. A `*` with spaces on both sides opens
+  and closes nothing: it is text.
+- **Links and images** are spans too: their children are the link text (`the `, then the emphasis `_wiki_`) or the
+  image's description (its alt text, `the plot`). `[the _wiki_][Notes]` is a reference: its destination comes from
+  the definition `[notes]`, matched whatever the case. The definition itself is a block, not printed here (it has
+  no inline content).
 
 The whole program:
 
@@ -61,6 +69,6 @@ The whole program:
 
 ::: tip What you learned
 `parse` turns the content of every paragraph and heading into inline nodes: text (merged, escapes and references
-decoded), code spans, raw HTML, autolinks, soft and hard line breaks, each spanning its bytes in the source.
-Emphasis, links and images join them in plan step 2.4. Reference: [Inlines](/reference/inlines).
+decoded), code spans, raw HTML, autolinks, soft and hard line breaks, emphasis, links and images, each spanning its
+bytes in the source. Reference: [Inlines](/reference/inlines), [Links and references](/reference/links).
 :::

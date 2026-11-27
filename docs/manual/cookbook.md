@@ -31,6 +31,30 @@ Reference: [Input](/reference/input). The whole program:
 
 <<< @/examples/snippets/read_encoding.f90
 
+## List every link of a page
+
+Every link and image of a page, whatever its form, with the line it is on, its destination, its title, its text and,
+for a reference, the label as written (`page.md`). The [walk](/reference/walk) visits the tree in document order; a
+link or an image is a span, so its text is a second walk over its subtree (`top=`).
+
+<<< @/examples/snippets/list_links-walk.f90
+
+<<< @/examples/snippets/list_links-text.f90
+
+<<< @/examples/output/list_links.ansi{ansi}
+
+- The four forms are one kind: `[the paper][paper]` is `full`, `[latest release][]` `collapsed`, `[FAQ]` `shortcut`,
+  the others `inline` or `autolink` (`SLOT_LINK_FORM`). The destination and the title come from the definition, which
+  the label matches case-insensitively and with its white space collapsed (`[faq]` defines `[FAQ]`).
+- A reference whose label has no definition is not a link: `[link with an undefined label][nowhere]` and `[this]`
+  stay text, and are not listed.
+- An image inside a link is listed after it: the walk enters the link, then the image in its text. The text of an
+  image is its alt text.
+
+Reference: [Links and references](/reference/links), [Walk](/reference/walk). The whole program:
+
+<<< @/examples/snippets/list_links.f90
+
 ## Planned
 
 ::: info Planned
@@ -40,7 +64,6 @@ makes them possible.
 
 | Recipe | Plan step |
 |---|---|
-| List every link of a page | 2.4 |
 | Change a table cell with a small diff | 3.2 |
 | Report a residual table while the run goes | 4.1 |
 | One report per MPI rank (code shown, not run: no MPI in the examples) | 4.2 |

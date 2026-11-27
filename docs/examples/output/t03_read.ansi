@@ -1,11 +1,14 @@
 $ t03_read
-parse stat: 0, 32 nodes
+parse stat: 0, 35 nodes
 
 document
   heading level 1, ATX, closing #s 1
     text "Field report"
   paragraph
-    text "Measured on the *rig* yesterday;"
+    text "Measured on the "
+    emph
+      text "rig"
+    text " yesterday;"
     softbreak
     text "the values are below."
   heading level 2, setext

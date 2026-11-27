@@ -26,8 +26,12 @@ module baruch_inlines
 !< - `&`: a character reference (`baruch_inlines_scan`), its UTF-8 bytes as text; else `&`;
 !< - `<`: a URI autolink, an email autolink (`NODE_LINK`, `LINK_AUTOLINK`, its text child), raw inline HTML (open and
 !<   closing tags, comments, processing instructions, declarations, CDATA: `NODE_HTML_INLINE`, verbatim); else `<`;
-!< - `*`, `_`: a delimiter run, a text node of its own pushed on the **delimiter stack**;
-!< - `[`, `![`: a text node of its own pushed on the **bracket stack**; `]` closes the top bracket;
+!< - `*`, `_`: a delimiter run; when it can open or close emphasis (the flanking rules below), a text node of its own
+!<   pushed on the **delimiter stack** (doubly linked through indices, so that a run can leave from its middle), else
+!<   text;
+!< - `[`, `![`: a text node of its own pushed on the **bracket stack** (image flag, `active`, `bracket_after`, the
+!<   first delimiter pushed after it); `]` closes the top bracket: a link or an image when an inline destination or a
+!<   reference follows (`handle_close_bracket`), else text;
 !< - anything else: text up to the next special byte (trailing spaces and tabs before a LF dropped).
 !<
 !< Text is accumulated, not written byte by byte: consecutive pieces (plain text, an escaped character, a reference's
@@ -35,20 +39,39 @@ module baruch_inlines
 !< delimiter stack, the bracket stack is emptied, and the adjacent text nodes left by the delimiters and brackets that
 !< matched nothing are **merged** (one pass over the block's subtree, each run concatenated once).
 !<
-!< **What plan step 2.4 completes.** The delimiter stack (doubly linked through indices, so that a delimiter can be
-!< removed from its middle) and the bracket stack (with its image flag, `active`, `bracket_after` and the delimiter
-!< below it) are built and maintained here; the flanking rules of a delimiter run (`can_open`, `can_close`), the
-!< matching loop of `process_emphasis` and the link and image resolution of a `]` are step 2.4's. Until then a
-!< delimiter run is pushed as neither opener nor closer, `process_emphasis` only clears the stack, and a `]` only pops
-!< its bracket: emphasis, links and images stay text.
+!< **Emphasis** (spec 6.2 and appendix): a run is left-flanking when the character after it is not Unicode White_Space
+!< and either not Unicode punctuation (General_Category P or S) or preceded by white space or punctuation;
+!< right-flanking symmetrically; the start and the end of the subject count as white space. A `*` run opens when
+!< left-flanking, closes when right-flanking; a `_` run opens when left-flanking and not right-flanking or preceded by
+!< punctuation, closes symmetrically. `process_emphasis` (cmark's) moves forward over the closers; for each it looks
+!< back for an opener of the same character, refusing an opener when one of them can both open and close and the sum
+!< of their original lengths is a multiple of 3 while the closer's is not (the rule of 3). A match takes two
+!< characters from both when both have two (strong), else one (emphasis): the nodes between become the children of a
+!< new `NODE_EMPH` or `NODE_STRONG` (`SLOT_EMPHASIS_CHAR` the character), the delimiters between are dropped. A closer
+!< with no opener sets the lower bound of later searches (`openers_bottom`, one per character, closer can-open and
+!< original length modulo 3): the matching is linear. A run keeps its text node; its literal and span are set once,
+!< when it leaves the stack, to the characters no match used.
+!<
+!< **Links and images** (spec 6.3, 6.4): at `]` the top bracket, if active, is tried as the text of an inline link
+!< (`(`, white space, a destination `<...>` or raw with balanced parentheses, white space, an optional title, white
+!< space, `)`), then of a full reference (`[label]` right after it), a collapsed one (`[]`) or a shortcut one (its
+!< text as the label, when no bracket was pushed after it), the label looked up in the `reference_map` of the
+!< document's definitions (`baruch_references`). On a match the nodes after the bracket become the children of a
+!< `NODE_LINK` or `NODE_IMAGE` (destination, title, `SLOT_LINK_FORM`, the label as written), the delimiters inside are
+!< processed, and a link deactivates every `[` before it (links do not nest; the walk stops at the first inactive one,
+!< as cmark's). The look-ahead for a `[label]` is bounded by 999 characters.
 use penf,                only : I4P
 use baruch_document,     only : markdown_document
+use stringifor,          only : string
 use baruch_kinds_nodes,  only : NODE_PARAGRAPH, NODE_HEADING, NODE_TEXT, NODE_SOFTBREAK, NODE_LINEBREAK, NODE_CODE, &
-                                NODE_HTML_INLINE, NODE_LINK, SLOT_LINK_FORM, LINK_AUTOLINK
+                                NODE_HTML_INLINE, NODE_EMPH, NODE_STRONG, NODE_LINK, NODE_IMAGE, SLOT_EMPHASIS_CHAR,  &
+                                SLOT_LINK_FORM, LINK_INLINE, LINK_FULL, LINK_COLLAPSED, LINK_SHORTCUT, LINK_AUTOLINK
 use baruch_blocks_scan,  only : BACKSLASH, is_ascii_punctuation, is_ascii_letter
-use baruch_inlines_scan, only : scan_reference, decode_references, scan_autolink_uri, scan_autolink_email,       &
-                                scan_html_tag, scan_html_comment, scan_processing_instruction, scan_declaration, &
-                                scan_cdata
+use baruch_blocks_definitions, only : scan_destination, scan_title, LABEL_MAX
+use baruch_inlines_scan, only : scan_reference, decode_references, unescape_string, scan_autolink_uri,            &
+                                scan_autolink_email, scan_html_tag, scan_html_comment, scan_processing_instruction, &
+                                scan_declaration, scan_cdata
+use baruch_references,   only : reference_map
 use baruch_status
 implicit none
 private
@@ -84,6 +107,7 @@ type :: inline_parser
    integer(I4P), allocatable :: delim_char(:)          !< Its character, `iachar` of `*` or `_`.
    integer(I4P), allocatable :: delim_count(:)         !< Delimiters left in the run.
    integer(I4P), allocatable :: delim_original(:)      !< Delimiters of the run as read (rule of 3).
+   integer(I4P), allocatable :: delim_first(:)         !< Offset of its first delimiter left (a closer uses its first).
    integer(I4P), allocatable :: delim_prev(:)          !< Delimiter below, 0 if none.
    integer(I4P), allocatable :: delim_next(:)          !< Delimiter above, 0 if none.
    logical,      allocatable :: delim_open(:)          !< The run can open emphasis.
@@ -92,7 +116,7 @@ type :: inline_parser
    integer(I4P)              :: brackets = 0_I4P       !< Brackets on the stack.
    integer(I4P), allocatable :: bracket_node(:)        !< The text node of `[` or `![`.
    integer(I4P), allocatable :: bracket_pos(:)         !< Offset of the subject after it.
-   integer(I4P), allocatable :: bracket_delim(:)       !< The top of the delimiter stack when it was pushed.
+   integer(I4P), allocatable :: bracket_delim(:)       !< The first delimiter pushed after it (record number).
    logical,      allocatable :: bracket_image(:)       !< `![`.
    logical,      allocatable :: bracket_active(:)      !< Can still open a link.
    logical,      allocatable :: bracket_after(:)       !< Another bracket was pushed after it.
@@ -103,6 +127,8 @@ type :: inline_parser
    logical                   :: no_pi_end = .false.          !< No `?>` after some `<?`.
    logical                   :: no_declaration_end = .false. !< No `>` after some `<!X`.
    logical                   :: no_cdata_end = .false.       !< No `]]>` after some `<![CDATA[`.
+   ! the link reference definitions
+   type(reference_map)       :: refs                         !< The document's definitions, by normalised label.
 endtype inline_parser
 
 contains
@@ -126,6 +152,7 @@ contains
    msg = ''
    parsed = .false.
    call start(p, doc)
+   call p%refs%build(doc)
    last = doc%last_node()
    do n=1, last ! the blocks were all created before: the inline nodes come after `last`
       if (.not. doc%is_node(n)) cycle
@@ -150,8 +177,8 @@ contains
    p%src = doc%source()
    allocate(p%line_subj(STACK_DEFAULT), p%line_src(STACK_DEFAULT))
    allocate(p%delim_node(STACK_DEFAULT), p%delim_char(STACK_DEFAULT), p%delim_count(STACK_DEFAULT),         &
-            p%delim_original(STACK_DEFAULT), p%delim_prev(STACK_DEFAULT), p%delim_next(STACK_DEFAULT),     &
-            p%delim_open(STACK_DEFAULT), p%delim_close(STACK_DEFAULT))
+            p%delim_original(STACK_DEFAULT), p%delim_first(STACK_DEFAULT), p%delim_prev(STACK_DEFAULT),     &
+            p%delim_next(STACK_DEFAULT), p%delim_open(STACK_DEFAULT), p%delim_close(STACK_DEFAULT))
    allocate(p%bracket_node(STACK_DEFAULT), p%bracket_pos(STACK_DEFAULT), p%bracket_delim(STACK_DEFAULT),   &
             p%bracket_image(STACK_DEFAULT), p%bracket_active(STACK_DEFAULT), p%bracket_after(STACK_DEFAULT))
    allocate(character(256) :: p%text)
@@ -189,7 +216,8 @@ contains
    enddo
    call flush_text(p, doc, ierr, msg)
    if (ierr /= BARUCH_OK) return
-   call process_emphasis(p, 0_I4P)
+   call process_emphasis(p, doc, 1_I4P, ierr, msg)
+   if (ierr /= BARUCH_OK) return
    p%brackets = 0_I4P
    call merge_texts(doc, block, ierr, msg)
    endsubroutine parse_block
@@ -315,7 +343,7 @@ contains
       call add_text(p, '!', p%pos, p%pos)
       p%pos = p%pos + 1_I4P
    case(']')
-      call handle_close_bracket(p)
+      call handle_close_bracket(p, doc, ierr, msg)
    case default
       e = scan(p%subj(p%pos+1:), SPECIALS, kind=I4P)
       if (e == 0_I4P) then
@@ -584,15 +612,23 @@ contains
    endfunction raw_html_length
 
    subroutine handle_delim(p, doc, ierr, msg)
-   !< A run of `*` or `_`: a text node of its own, pushed on the delimiter stack. Whether it can open or close
-   !< emphasis (the flanking rules) is plan step 2.4's: until then it is pushed as neither.
-   type(inline_parser),       intent(inout) :: p     !< Parser.
-   type(markdown_document),   intent(inout) :: doc   !< Document.
-   integer(I4P),              intent(inout) :: ierr  !< Status.
-   character(:), allocatable, intent(inout) :: msg   !< Message.
-   character                                :: c     !< The delimiter character.
-   integer(I4P)                             :: first !< First byte of the run.
-   integer(I4P)                             :: node  !< Its text node.
+   !< A run of `*` or `_`: a text node of its own pushed on the delimiter stack when it can open or close emphasis
+   !< (the flanking rules, with Unicode White_Space and punctuation around it), else text.
+   type(inline_parser),       intent(inout) :: p            !< Parser.
+   type(markdown_document),   intent(inout) :: doc          !< Document.
+   integer(I4P),              intent(inout) :: ierr         !< Status.
+   character(:), allocatable, intent(inout) :: msg          !< Message.
+   character                                :: c            !< The delimiter character.
+   integer(I4P)                             :: first        !< First byte of the run.
+   integer(I4P)                             :: node         !< Its text node.
+   logical                                  :: before_space !< White space (or the start) before the run.
+   logical                                  :: before_punct !< Punctuation before the run.
+   logical                                  :: after_space  !< White space (or the end) after the run.
+   logical                                  :: after_punct  !< Punctuation after the run.
+   logical                                  :: left         !< Left-flanking.
+   logical                                  :: right        !< Right-flanking.
+   logical                                  :: can_open     !< Can open emphasis.
+   logical                                  :: can_close    !< Can close emphasis.
 
    c = p%subj(p%pos:p%pos)
    first = p%pos
@@ -600,16 +636,87 @@ contains
       if (p%subj(p%pos:p%pos) /= c) exit
       p%pos = p%pos + 1_I4P
    enddo
+   call classify(p%subj, char_before(p%subj, first), before_space, before_punct)
+   call classify(p%subj, char_at(p%subj, p%pos), after_space, after_punct)
+   left = .not. after_space .and. (.not. after_punct .or. before_space .or. before_punct)
+   right = .not. before_space .and. (.not. before_punct .or. after_space .or. after_punct)
+   if (c == '_') then
+      can_open = left .and. (.not. right .or. before_punct)
+      can_close = right .and. (.not. left .or. after_punct)
+   else
+      can_open = left
+      can_close = right
+   endif
+   if (.not. (can_open .or. can_close)) then
+      call add_text(p, p%subj(first:p%pos-1), first, p%pos - 1_I4P)
+      return
+   endif
    node = add_text_node(p, doc, first, p%pos - 1_I4P, ierr, msg)
    if (ierr /= BARUCH_OK) return
-   call push_delimiter(p, node, c, p%pos - first, .false., .false.)
+   call push_delimiter(p, node, c, first, p%pos - first, can_open, can_close)
    endsubroutine handle_delim
 
-   subroutine push_delimiter(p, node, c, count, can_open, can_close)
+   pure function char_before(text, i) result(first)
+   !< Return the first byte of the UTF-8 character before position `i` (it ends at `i - 1`), 0 at the start.
+   character(*), intent(in) :: text  !< Text, well-formed UTF-8.
+   integer(I4P), intent(in) :: i     !< Position.
+   integer(I4P)             :: first !< First byte of the character before, 0 if none.
+
+   first = i - 1_I4P
+   do while (first > 1_I4P)
+      if (iand(iachar(text(first:first)), 192) /= 128) exit ! not a continuation byte
+      first = first - 1_I4P
+   enddo
+   endfunction char_before
+
+   pure function char_at(text, i) result(first)
+   !< Return `i`, or 0 past the end of the text (no character there).
+   character(*), intent(in) :: text  !< Text.
+   integer(I4P), intent(in) :: i     !< Position.
+   integer(I4P)             :: first !< Position of the character, 0 if none.
+
+   first = i
+   if (i > len(text, kind=I4P)) first = 0_I4P
+   endfunction char_at
+
+   subroutine classify(text, i, space, punct)
+   !< Whether the UTF-8 character at `i` is Unicode White_Space and whether it is Unicode punctuation (General_Category
+   !< P or S), by StringiFor's `is_space(unicode=.true.)` and `is_punct(unicode=.true.)`; no character (`i` 0, the
+   !< start or the end of the subject) counts as white space.
+   character(*), intent(in)  :: text  !< Text, well-formed UTF-8.
+   integer(I4P), intent(in)  :: i     !< First byte of the character, 0 for none.
+   logical,      intent(out) :: space !< White space.
+   logical,      intent(out) :: punct !< Punctuation.
+   type(string)              :: u     !< The character.
+   integer(I4P)              :: b     !< Its lead byte.
+   integer(I4P)              :: n     !< Its bytes.
+
+   space = .true.
+   punct = .false.
+   if (i < 1_I4P) return
+   b = iachar(text(i:i))
+   if (b < 128_I4P) then
+      space = text(i:i) == ' ' .or. (b >= 9_I4P .and. b <= 13_I4P)
+      punct = is_ascii_punctuation(text(i:i))
+      return
+   elseif (b >= 240_I4P) then
+      n = 4_I4P
+   elseif (b >= 224_I4P) then
+      n = 3_I4P
+   else
+      n = 2_I4P
+   endif
+   u = text(i:min(len(text, kind=I4P), i + n - 1_I4P))
+   space = u%is_space(unicode=.true.)
+   punct = u%is_punct(unicode=.true.)
+   endsubroutine classify
+
+   subroutine push_delimiter(p, node, c, first, count, can_open, can_close)
    !< Push a delimiter run on the delimiter stack.
    type(inline_parser), intent(inout) :: p         !< Parser.
    integer(I4P),        intent(in)    :: node      !< Its text node.
    character,           intent(in)    :: c         !< Its character.
+   integer(I4P),        intent(in)    :: first     !< Its first offset in the subject.
    integer(I4P),        intent(in)    :: count     !< Its length.
    logical,             intent(in)    :: can_open  !< It can open emphasis.
    logical,             intent(in)    :: can_close !< It can close emphasis.
@@ -620,6 +727,7 @@ contains
       call grow(p%delim_char)
       call grow(p%delim_count)
       call grow(p%delim_original)
+      call grow(p%delim_first)
       call grow(p%delim_prev)
       call grow(p%delim_next)
       call grow_logical(p%delim_open)
@@ -631,6 +739,7 @@ contains
    p%delim_char(d) = iachar(c)
    p%delim_count(d) = count
    p%delim_original(d) = count
+   p%delim_first(d) = first
    p%delim_open(d) = can_open
    p%delim_close(d) = can_close
    p%delim_prev(d) = p%delim_top
@@ -652,17 +761,165 @@ contains
    endif
    endsubroutine remove_delimiter
 
-   subroutine process_emphasis(p, stack_bottom)
-   !< Process the delimiters above `stack_bottom` (0: the whole stack), then remove them. The matching of openers and
-   !< closers into emphasis and strong emphasis is plan step 2.4's; until then no delimiter can open or close, and the
-   !< delimiters are only removed (their text nodes stay text).
-   type(inline_parser), intent(inout) :: p            !< Parser.
-   integer(I4P),        intent(in)    :: stack_bottom !< Delimiter below the ones processed, 0 for none.
+   subroutine retire_delimiter(p, doc, d, ierr, msg)
+   !< Remove a delimiter from the stack for good: its text node keeps the characters no match used (literal and span
+   !< set once, here), or goes when none is left.
+   type(inline_parser),       intent(inout) :: p    !< Parser.
+   type(markdown_document),   intent(inout) :: doc  !< Document.
+   integer(I4P),              intent(in)    :: d    !< Delimiter.
+   integer(I4P),              intent(inout) :: ierr !< Status.
+   character(:), allocatable, intent(inout) :: msg  !< Message.
+   integer(I4P)                             :: node !< Its text node.
+   integer(I4P)                             :: a    !< First offset left.
+   integer(I4P)                             :: k    !< Characters left.
+   character                                :: c    !< The delimiter character (a fixed-length variable, not
+                                                    !< `achar` in an expression: szaghi/BARUCH#2 B3).
 
-   do while (p%delim_top /= stack_bottom .and. p%delim_top /= 0_I4P)
-      call remove_delimiter(p, p%delim_top)
+   node = p%delim_node(d)
+   k = p%delim_count(d)
+   a = p%delim_first(d)
+   if (k == 0_I4P) then
+      call doc%unlink(node, stat=ierr, errmsg=msg)
+   elseif (k < p%delim_original(d)) then
+      c = achar(p%delim_char(d))
+      call doc%set_literal(node, repeat(c, k), stat=ierr, errmsg=msg)
+      if (ierr == BARUCH_OK) call doc%set_span(node, source_byte(p, a), source_byte(p, a + k - 1_I4P), &
+                                               stat=ierr, errmsg=msg)
+   endif
+   call remove_delimiter(p, d)
+   endsubroutine retire_delimiter
+
+   subroutine process_emphasis(p, doc, stack_bottom, ierr, msg)
+   !< Match the delimiters from `stack_bottom` (a record number: the first pushed after a bracket, 1 for the whole
+   !< stack) up into emphasis and strong emphasis, then remove them all (cmark's `process_emphasis`, spec appendix).
+   type(inline_parser),       intent(inout) :: p                  !< Parser.
+   type(markdown_document),   intent(inout) :: doc                !< Document.
+   integer(I4P),              intent(in)    :: stack_bottom       !< First delimiter processed.
+   integer(I4P),              intent(inout) :: ierr               !< Status.
+   character(:), allocatable, intent(inout) :: msg                !< Message.
+   integer(I4P)                             :: openers_bottom(0:11) !< Lower bound of the opener search, per key.
+   integer(I4P)                             :: closer             !< Current closer candidate.
+   integer(I4P)                             :: opener             !< Opener candidate.
+   integer(I4P)                             :: old_closer         !< The closer before a match moved it.
+   integer(I4P)                             :: key                !< Character, closer can open, length mod 3.
+   integer(I4P)                             :: d                  !< Delimiter.
+   logical                                  :: found              !< An opener matches.
+
+   openers_bottom = stack_bottom
+   ! the first delimiter at or above the bottom
+   closer = 0_I4P
+   d = p%delim_top
+   do while (d /= 0_I4P)
+      if (d < stack_bottom) exit
+      closer = d
+      d = p%delim_prev(d)
+   enddo
+   ! forward over the closers
+   do while (closer /= 0_I4P)
+      if (.not. p%delim_close(closer)) then
+         closer = p%delim_next(closer)
+         cycle
+      endif
+      key = mod(p%delim_original(closer), 3_I4P)
+      if (p%delim_open(closer)) key = key + 3_I4P
+      if (p%delim_char(closer) == iachar('_')) key = key + 6_I4P
+      found = .false.
+      opener = p%delim_prev(closer)
+      do while (opener /= 0_I4P)
+         if (opener < openers_bottom(key)) exit
+         if (p%delim_open(opener) .and. p%delim_char(opener) == p%delim_char(closer)) then
+            if (.not. (p%delim_open(closer) .or. p%delim_close(opener)) .or.          &
+                mod(p%delim_original(closer), 3_I4P) == 0_I4P .or.                     &
+                mod(p%delim_original(opener) + p%delim_original(closer), 3_I4P) /= 0_I4P) then
+               found = .true.
+               exit
+            endif
+         endif
+         opener = p%delim_prev(opener)
+      enddo
+      old_closer = closer
+      if (found) then
+         call insert_emph(p, doc, opener, closer, ierr, msg)
+         if (ierr /= BARUCH_OK) return
+      else
+         closer = p%delim_next(closer)
+         openers_bottom(key) = old_closer ! no opener below it for this key, now or later
+         if (.not. p%delim_open(old_closer)) then
+            call retire_delimiter(p, doc, old_closer, ierr, msg)
+            if (ierr /= BARUCH_OK) return
+         endif
+      endif
+   enddo
+   ! every delimiter from the bottom up leaves the stack
+   do while (p%delim_top /= 0_I4P)
+      if (p%delim_top < stack_bottom) exit
+      call retire_delimiter(p, doc, p%delim_top, ierr, msg)
+      if (ierr /= BARUCH_OK) return
    enddo
    endsubroutine process_emphasis
+
+   subroutine insert_emph(p, doc, opener, closer, ierr, msg)
+   !< Match an opener and a closer: two characters of each (strong emphasis) when both have two, else one; the nodes
+   !< between them become the children of the new node, the delimiters between them leave the stack; an opener or a
+   !< closer with no character left goes. `closer` becomes the closer to try next (itself if characters are left).
+   type(inline_parser),       intent(inout) :: p      !< Parser.
+   type(markdown_document),   intent(inout) :: doc    !< Document.
+   integer(I4P),              intent(in)    :: opener !< Opener.
+   integer(I4P),              intent(inout) :: closer !< Closer; on exit the next one to try.
+   integer(I4P),              intent(inout) :: ierr   !< Status.
+   character(:), allocatable, intent(inout) :: msg    !< Message.
+   integer(I4P)                             :: used   !< Characters used from each.
+   integer(I4P)                             :: first  !< First offset of the new node (the opener's used ones).
+   integer(I4P)                             :: last   !< Last offset (the closer's used ones).
+   integer(I4P)                             :: d      !< Delimiter between.
+   integer(I4P)                             :: prev   !< The one below it.
+   integer(I4P)                             :: emph   !< New node.
+   integer(I4P)                             :: t      !< Node moved.
+   integer(I4P)                             :: next   !< The one after it.
+   integer(I4P)                             :: onode  !< Opener's text node.
+   integer(I4P)                             :: cnode  !< Closer's text node.
+
+   used = 1_I4P
+   if (p%delim_count(opener) >= 2_I4P .and. p%delim_count(closer) >= 2_I4P) used = 2_I4P
+   p%delim_count(opener) = p%delim_count(opener) - used ! an opener gives its last characters
+   first = p%delim_first(opener) + p%delim_count(opener)
+   last = p%delim_first(closer) + used - 1_I4P          ! a closer its first
+   p%delim_first(closer) = p%delim_first(closer) + used
+   p%delim_count(closer) = p%delim_count(closer) - used
+   d = p%delim_prev(closer)
+   do while (d /= 0_I4P .and. d /= opener)
+      prev = p%delim_prev(d)
+      call retire_delimiter(p, doc, d, ierr, msg)
+      if (ierr /= BARUCH_OK) return
+      d = prev
+   enddo
+   onode = p%delim_node(opener)
+   cnode = p%delim_node(closer)
+   if (used == 2_I4P) then
+      emph = doc%new_node(NODE_STRONG, stat=ierr, errmsg=msg)
+   else
+      emph = doc%new_node(NODE_EMPH, stat=ierr, errmsg=msg)
+   endif
+   if (ierr == BARUCH_OK) call doc%set_int_slot(emph, SLOT_EMPHASIS_CHAR, p%delim_char(opener), stat=ierr, errmsg=msg)
+   if (ierr == BARUCH_OK) call doc%set_span(emph, source_byte(p, first), source_byte(p, last), stat=ierr, errmsg=msg)
+   t = doc%next_sibling(onode) ! the new node is linked after its children: no ancestor walk per child
+   do while (ierr == BARUCH_OK .and. t /= cnode .and. t /= 0_I4P)
+      next = doc%next_sibling(t)
+      call doc%append_child(emph, t, stat=ierr, errmsg=msg)
+      t = next
+   enddo
+   if (ierr == BARUCH_OK) call doc%insert_after(onode, emph, stat=ierr, errmsg=msg)
+   if (ierr /= BARUCH_OK) return
+   if (p%delim_count(opener) == 0_I4P) then
+      call retire_delimiter(p, doc, opener, ierr, msg)
+      if (ierr /= BARUCH_OK) return
+   endif
+   if (p%delim_count(closer) == 0_I4P) then
+      d = p%delim_next(closer)
+      call retire_delimiter(p, doc, closer, ierr, msg)
+      closer = d
+   endif
+   endsubroutine insert_emph
 
    subroutine push_bracket(p, doc, image, ierr, msg)
    !< A `[` (or `![`, an image): a text node of its own, pushed on the bracket stack, active.
@@ -693,21 +950,221 @@ contains
    b = p%brackets
    p%bracket_node(b) = node
    p%bracket_pos(b) = p%pos
-   p%bracket_delim(b) = p%delim_top
+   p%bracket_delim(b) = p%delims_used + 1_I4P
    p%bracket_image(b) = image
    p%bracket_active(b) = .true.
    p%bracket_after(b) = .false.
    endsubroutine push_bracket
 
-   subroutine handle_close_bracket(p)
-   !< A `]`: the top bracket is popped and `]` is text. Matching it with a link or an image (an inline destination, a
-   !< reference) is plan step 2.4's.
-   type(inline_parser), intent(inout) :: p !< Parser.
+   subroutine handle_close_bracket(p, doc, ierr, msg)
+   !< A `]`. With an active bracket on top of the stack, try an inline link, then a full, collapsed or shortcut
+   !< reference (cmark's `handle_close_bracket`); on a match, the link or the image; else (or with no bracket, or an
+   !< inactive one) `]` is text and the top bracket is popped.
+   type(inline_parser),       intent(inout) :: p           !< Parser.
+   type(markdown_document),   intent(inout) :: doc         !< Document.
+   integer(I4P),              intent(inout) :: ierr        !< Status.
+   character(:), allocatable, intent(inout) :: msg         !< Message.
+   character(:), allocatable                :: destination !< Destination, processed.
+   character(:), allocatable                :: title       !< Title, processed.
+   character(:), allocatable                :: label       !< Label as written (reference forms).
+   integer(I4P)                             :: rb          !< Offset of `]`.
+   integer(I4P)                             :: initial     !< Offset after it.
+   integer(I4P)                             :: b           !< Top bracket.
+   integer(I4P)                             :: form        !< Link form.
+   integer(I4P)                             :: k           !< Position.
+   integer(I4P)                             :: d_first     !< First byte of the destination.
+   integer(I4P)                             :: d_last      !< Last byte.
+   integer(I4P)                             :: end_url     !< Offset after the destination.
+   integer(I4P)                             :: t_first     !< Offset of the title.
+   integer(I4P)                             :: t_length    !< Bytes of the title, delimiters included.
+   integer(I4P)                             :: l_first     !< First byte of a `[label]` after `]`.
+   integer(I4P)                             :: l_last      !< Last byte.
+   integer(I4P)                             :: after       !< Offset after the reference.
+   integer(I4P)                             :: def         !< Definition referred to.
+   logical                                  :: ok          !< A step matched.
+   logical                                  :: has_label   !< A `[label]` follows.
 
-   if (p%brackets > 0_I4P) p%brackets = p%brackets - 1_I4P
-   call add_text(p, ']', p%pos, p%pos)
+   rb = p%pos
    p%pos = p%pos + 1_I4P
+   initial = p%pos
+   if (p%brackets == 0_I4P) then
+      call add_text(p, ']', rb, rb)
+      return
+   endif
+   b = p%brackets
+   if (.not. p%bracket_active(b)) then
+      p%brackets = b - 1_I4P
+      call add_text(p, ']', rb, rb)
+      return
+   endif
+   ! an inline link: `(`, white space, destination, white space, title, white space, `)`
+   ok = .false.
+   if (initial <= p%n) then
+      if (p%subj(initial:initial) == '(') then
+         k = initial + 1_I4P
+         call skip_white(p, k)
+         call scan_destination(p%subj, k, .true., d_first, d_last, ok)
+         if (ok) then
+            end_url = k
+            call skip_white(p, k)
+            t_first = k
+            t_length = 0_I4P
+            if (t_first /= end_url) t_length = scan_title(p%subj, t_first)
+            k = t_first + t_length
+            if (t_length > 0_I4P) call skip_white(p, k)
+            ok = .false.
+            if (k <= p%n) ok = p%subj(k:k) == ')'
+         endif
+         if (ok) then
+            destination = unescape_string(p%subj(d_first:d_last))
+            title = ''
+            if (t_length > 0_I4P) title = unescape_string(p%subj(t_first+1:t_first+t_length-2))
+            label = ''
+            form = LINK_INLINE
+            after = k + 1_I4P
+         endif
+      endif
+   endif
+   ! a reference: full `[label]`, collapsed `[]`, shortcut (the text itself, when no bracket is inside it)
+   if (.not. ok) then
+      call scan_link_label(p, initial, has_label, l_first, l_last)
+      ! a blank `[ ]` is no link label (spec 6.3): not a full reference, nor `[]`; the text may be a shortcut
+      if (has_label .and. l_last >= l_first) has_label = verify(p%subj(l_first:l_last), ' '//TAB//LF) > 0
+      def = 0_I4P
+      if (has_label .and. l_last >= l_first) then
+         label = p%subj(l_first:l_last)
+         form = LINK_FULL
+         after = l_last + 2_I4P
+         def = p%refs%lookup(label)
+      elseif (.not. p%bracket_after(b)) then
+         label = p%subj(p%bracket_pos(b):rb-1_I4P)
+         if (has_label) then
+            form = LINK_COLLAPSED
+            after = l_last + 2_I4P
+         else
+            form = LINK_SHORTCUT
+            after = initial
+         endif
+         def = p%refs%lookup(label)
+      endif
+      if (def /= 0_I4P) then
+         ok = .true.
+         destination = doc%destination(def)
+         title = doc%title(def)
+      endif
+   endif
+   if (.not. ok) then
+      p%brackets = b - 1_I4P
+      call add_text(p, ']', rb, rb)
+      return
+   endif
+   p%pos = after
+   call add_link(p, doc, b, form, destination, title, label, ierr, msg)
    endsubroutine handle_close_bracket
+
+   subroutine add_link(p, doc, b, form, destination, title, label, ierr, msg)
+   !< A link or an image whose text starts after bracket `b` (the top one) and ends before the cursor's construct:
+   !< the nodes after the bracket's text node become its children, the bracket's node goes, the delimiters inside are
+   !< processed, the bracket is popped, and a link deactivates the `[` before it.
+   type(inline_parser),       intent(inout) :: p           !< Parser.
+   type(markdown_document),   intent(inout) :: doc         !< Document.
+   integer(I4P),              intent(in)    :: b           !< The bracket.
+   integer(I4P),              intent(in)    :: form        !< Link form.
+   character(*),              intent(in)    :: destination !< Destination.
+   character(*),              intent(in)    :: title       !< Title.
+   character(*),              intent(in)    :: label       !< Label as written.
+   integer(I4P),              intent(inout) :: ierr        !< Status.
+   character(:), allocatable, intent(inout) :: msg         !< Message.
+   integer(I4P)                             :: link        !< Link or image.
+   integer(I4P)                             :: opener      !< The bracket's text node.
+   integer(I4P)                             :: first       !< First offset of the link (its `[` or `!`).
+   integer(I4P)                             :: t           !< Node moved.
+   integer(I4P)                             :: next        !< The one after it.
+   integer(I4P)                             :: k           !< Bracket.
+
+   call flush_text(p, doc, ierr, msg)
+   if (ierr /= BARUCH_OK) return
+   opener = p%bracket_node(b)
+   first = p%bracket_pos(b) - 1_I4P
+   if (p%bracket_image(b)) then
+      first = first - 1_I4P
+      link = doc%new_node(NODE_IMAGE, stat=ierr, errmsg=msg)
+   else
+      link = doc%new_node(NODE_LINK, stat=ierr, errmsg=msg)
+   endif
+   if (ierr == BARUCH_OK) call doc%set_span(link, source_byte(p, first), source_byte(p, p%pos - 1_I4P), &
+                                            stat=ierr, errmsg=msg)
+   if (ierr == BARUCH_OK) call doc%set_int_slot(link, SLOT_LINK_FORM, form, stat=ierr, errmsg=msg)
+   if (ierr == BARUCH_OK) call doc%set_destination(link, destination, stat=ierr, errmsg=msg)
+   if (ierr == BARUCH_OK .and. len(title) > 0) call doc%set_title(link, title, stat=ierr, errmsg=msg)
+   if (ierr == BARUCH_OK .and. len(label) > 0) call doc%set_label(link, label, stat=ierr, errmsg=msg)
+   t = doc%next_sibling(opener) ! the new node is linked after its children: no ancestor walk per child
+   do while (ierr == BARUCH_OK .and. t /= 0_I4P)
+      next = doc%next_sibling(t)
+      call doc%append_child(link, t, stat=ierr, errmsg=msg)
+      t = next
+   enddo
+   if (ierr == BARUCH_OK) call doc%insert_before(opener, link, stat=ierr, errmsg=msg)
+   if (ierr == BARUCH_OK) call doc%unlink(opener, stat=ierr, errmsg=msg)
+   if (ierr /= BARUCH_OK) return
+   call process_emphasis(p, doc, p%bracket_delim(b), ierr, msg)
+   if (ierr /= BARUCH_OK) return
+   p%brackets = b - 1_I4P
+   if (.not. p%bracket_image(b)) then ! links do not nest: the `[` before this one open nothing any more
+      do k=p%brackets, 1_I4P, -1_I4P
+         if (p%bracket_image(k)) cycle
+         if (.not. p%bracket_active(k)) exit ! the ones below were deactivated by an earlier link
+         p%bracket_active(k) = .false.
+      enddo
+   endif
+   endsubroutine add_link
+
+   subroutine scan_link_label(p, at, found, first, last)
+   !< A link label right at offset `at`: `[`, at most 999 characters with no unescaped bracket, `]` (cmark's
+   !< `link_label`: the look-ahead is bounded). `first:last` is its content.
+   type(inline_parser), intent(in)  :: p      !< Parser.
+   integer(I4P),        intent(in)  :: at     !< Offset.
+   logical,             intent(out) :: found  !< A label.
+   integer(I4P),        intent(out) :: first  !< First byte of its content.
+   integer(I4P),        intent(out) :: last   !< Last byte.
+   integer(I4P)                     :: k      !< Position.
+   integer(I4P)                     :: length !< Characters read.
+
+   found = .false.
+   first = at + 1_I4P
+   last = at
+   if (at > p%n) return
+   if (p%subj(at:at) /= '[') return
+   k = at + 1_I4P
+   length = 0_I4P
+   do while (k <= p%n)
+      if (p%subj(k:k) == '[' .or. p%subj(k:k) == ']') exit
+      if (p%subj(k:k) == BACKSLASH .and. k < p%n) then
+         if (is_ascii_punctuation(p%subj(k+1:k+1))) then
+            k = k + 1_I4P
+            length = length + 1_I4P
+         endif
+      endif
+      k = k + 1_I4P
+      length = length + 1_I4P
+      if (length > LABEL_MAX) return
+   enddo
+   if (k > p%n) return
+   if (p%subj(k:k) /= ']') return
+   found = .true.
+   last = k - 1_I4P
+   endsubroutine scan_link_label
+
+   pure subroutine skip_white(p, k)
+   !< Move offset `k` past spaces, tabs and line endings.
+   type(inline_parser), intent(in)    :: p !< Parser.
+   integer(I4P),        intent(inout) :: k !< Offset.
+
+   do while (k <= p%n)
+      if (p%subj(k:k) /= ' ' .and. p%subj(k:k) /= TAB .and. p%subj(k:k) /= LF) exit
+      k = k + 1_I4P
+   enddo
+   endsubroutine skip_white
 
    subroutine skip_spaces(p)
    !< Move the cursor past spaces and tabs.

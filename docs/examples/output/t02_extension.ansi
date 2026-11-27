@@ -16,7 +16,10 @@ document
   paragraph
     text "A paragraph."
     softbreak
-    text "%% raw line, *not* emphasis"
+    text "%% raw line, "
+    emph
+      text "not"
+    text " emphasis"
     softbreak
     text "%%   indented marker"
   paragraph

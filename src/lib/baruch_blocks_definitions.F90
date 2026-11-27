@@ -7,7 +7,7 @@ module baruch_blocks_definitions
 !< each definition read is a `link_reference_definition` node in place, before the paragraph, and the paragraph keeps
 !< the rest (it goes if nothing is left). A definition always ends at a line ending, so it takes whole lines.
 !<
-!< What is stored (resolution of references against the definitions comes with the links, plan step 2.4):
+!< What is stored (the references are resolved against the definitions by `baruch_references`, at the inline phase):
 !<
 !< - the **label** as written between the brackets, untouched (matching normalises it: case fold, white space);
 !< - the **destination** without its `<>`, if any, and the **title** without its delimiters, both with their
@@ -18,7 +18,8 @@ use baruch_blocks_scan,  only : BACKSLASH, is_space_or_tab, is_ascii_punctuation
 use baruch_inlines_scan, only : unescape_string
 implicit none
 private
-public :: parse_definition
+public :: parse_definition, scan_destination, scan_title
+public :: LABEL_MAX
 
 integer(I4P), parameter :: LABEL_MAX = 999_I4P !< Characters a link label may hold (CommonMark 6.3).
 integer(I4P), parameter :: PARENS_MAX = 32_I4P !< Nesting of unescaped parentheses in a destination (as cmark).
@@ -61,7 +62,7 @@ contains
    pos = pos + 1_I4P
    ! the destination
    call skip_spaces_one_line_ending(text, pos)
-   call scan_destination(text, pos, d_first, d_last, ok)
+   call scan_destination(text, pos, .false., d_first, d_last, ok)
    if (.not. ok) return
    ! the title, optional, separated by white space
    before = pos
@@ -126,12 +127,14 @@ contains
    ok = .true.
    endsubroutine scan_label
 
-   pure subroutine scan_destination(text, pos, first, last, ok)
-   !< A link destination at `pos`: `<...>` (no line ending, no unescaped `<` or `>` inside), or a nonempty run of
-   !< characters that are not white space with balanced unescaped parentheses. `pos` moves after it; `first:last` is
-   !< the destination without its `<>`.
+   pure subroutine scan_destination(text, pos, empty, first, last, ok)
+   !< A link destination at `pos`: `<...>` (no line ending, no unescaped `<` or `>` inside), or a run of characters
+   !< that are not white space or ASCII controls with balanced unescaped parentheses (at most 32 open), nonempty
+   !< unless `empty` (an inline link's `[a]()`). `pos` moves after it; `first:last` is the destination without its
+   !< `<>`. Shared by the definitions and the inline links (`baruch_inlines`).
    character(*), intent(in)    :: text   !< Text.
    integer(I4P), intent(inout) :: pos    !< Position.
+   logical,      intent(in)    :: empty  !< A raw destination may be empty.
    integer(I4P), intent(out)   :: first  !< First byte.
    integer(I4P), intent(out)   :: last   !< Last byte.
    logical,      intent(out)   :: ok     !< A destination.
@@ -150,9 +153,11 @@ contains
       do while (k <= n)
          c = text(k:k)
          if (c == '>') exit
-         if (c == BACKSLASH) then
-            k = k + 2_I4P
-            cycle
+         if (c == BACKSLASH .and. k < n) then
+            if (is_ascii_punctuation(text(k+1:k+1))) then
+               k = k + 2_I4P
+               cycle
+            endif
          endif
          if (c == LF .or. c == '<') return
          k = k + 1_I4P
@@ -183,7 +188,7 @@ contains
          endif
          k = k + 1_I4P
       enddo
-      if (k == pos .or. k > n .or. parens /= 0_I4P) return
+      if ((k == pos .and. .not. empty) .or. k > n .or. parens /= 0_I4P) return
       first = pos
       last = k - 1_I4P
       pos = k
@@ -193,7 +198,8 @@ contains
 
    pure function scan_title(text, pos) result(length)
    !< A link title at `pos`: `"..."`, `'...'` or `(...)`, a backslash escaping the closing delimiter (and `(` inside
-   !< parentheses, which may not hold an unescaped one). Return its bytes with the delimiters, 0 for none.
+   !< parentheses, which may not hold an unescaped one). Return its bytes with the delimiters, 0 for none. Shared by the
+   !< definitions and the inline links.
    character(*), intent(in) :: text   !< Text.
    integer(I4P), intent(in) :: pos    !< Position.
    integer(I4P)             :: length !< Bytes.
