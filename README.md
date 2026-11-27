@@ -19,7 +19,8 @@ BARUCH reads Markdown into a document tree and writes a tree back to Markdown:
 Text is handled with [StringiFor](https://github.com/szaghi/StringiFor) and kinds come from
 [PENF](https://github.com/szaghi/PENF), both fetched by `fobis fetch`.
 
-The repository is being seeded: the build, the tests and the CI are in place, the parser is not written yet.
+Work in progress: the document tree and its input are written; the parser, the renderer and the writers are not
+yet. The plan is [#1](https://github.com/szaghi/BARUCH/issues/1).
 
 ```bash
 fobis fetch && fobis build --mode tests-gnu && bash scripts/run_tests.sh

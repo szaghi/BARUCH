@@ -14,11 +14,18 @@ module baruch_document
 !< (kind `NODE_NONE`). Strings replaced or unlinked stay in the pool. `compact` is the one operation that renumbers:
 !< it drops the tombstones and the dead strings, keeps the order of the live nodes, and returns the map old to new.
 !<
+!< The document also keeps the text it is read from, its **source**: `load` (a `character` or a StringiFor `string`) and
+!< `load_file` sanitise it (`baruch_input`: any encoding to UTF-8, ill-formed sequences and U+0000 to U+FFFD, the byte
+!< order mark removed) and index its lines. Line endings (LF, CR, CRLF) are kept as they are, so spans are byte ranges
+!< of `source()`, and `line_first`/`line_last` give each line without its ending.
+!<
 !< Nothing in the document recurses: subtrees are visited by following the links. Every component is allocatable or
 !< a scalar, so assignment is a deep copy. Arrays grow by doubling. A misuse (a handle that is not a live node, an
 !< accessor of another kind, a value out of range, an edit that would make a cycle) returns a nonzero `stat` and a
 !< message, and the documented default result; nothing stops.
 use penf,               only : I4P
+use stringifor,         only : string
+use baruch_input,       only : index_lines, read_bytes, sanitize
 use baruch_kinds_nodes
 use baruch_status
 implicit none
@@ -64,6 +71,10 @@ type :: markdown_document
    integer(I4P), allocatable :: ext_name_(:)          !< Name (string id).
    integer(I4P), allocatable :: ext_inline_(:)        !< 1 inline, 0 block.
    integer(I4P)              :: ext_used = 0_I4P      !< Registered kinds.
+   ! source
+   character(:), allocatable :: source_               !< Sanitised UTF-8 the document is read from.
+   integer(I4P), allocatable :: line_first_(:)        !< First byte of each line of the source.
+   integer(I4P), allocatable :: line_last_(:)         !< Last byte of each line, its ending excluded.
    contains
       ! life cycle
       procedure, pass(self) :: initialize        !< Reset to a document holding only its root.
@@ -130,6 +141,17 @@ type :: markdown_document
       procedure, pass(self) :: attribute_name    !< Return the name of the i-th attribute of a node.
       procedure, pass(self) :: attribute_value   !< Return the value of the i-th attribute of a node.
       procedure, pass(self) :: remove_attribute  !< Remove a named attribute of a node.
+      ! source
+      generic               :: load => load_character, load_string !< Load the source from a text: sanitised, indexed.
+      procedure, pass(self) :: load_file         !< Load the source from a file: read whole, sanitised, indexed.
+      procedure, pass(self) :: source            !< Return the source, the sanitised UTF-8.
+      procedure, pass(self) :: source_length     !< Return the bytes of the source.
+      procedure, pass(self) :: source_slice      !< Return the bytes of the source from one position to another.
+      procedure, pass(self) :: lines_number      !< Return the number of lines of the source.
+      procedure, pass(self) :: line              !< Return a line of the source, its ending excluded.
+      procedure, pass(self) :: line_first        !< Return the first byte of a line.
+      procedure, pass(self) :: line_last         !< Return the last byte of a line, its ending excluded.
+      procedure, pass(self) :: line_ending       !< Return the ending of a line: LF, CR, CRLF or none.
       ! private helpers
       procedure, pass(self), private :: allocate_pools   !< Allocate every array at its initial capacity.
       procedure, pass(self), private :: ensure_ready     !< Initialise an empty document before an edit.
@@ -143,12 +165,17 @@ type :: markdown_document
       procedure, pass(self), private :: detach           !< Take a node out of its parent's children.
       procedure, pass(self), private :: find_attribute   !< Return the record of a named attribute and its previous.
       procedure, pass(self), private :: nth_attribute    !< Return the record of the i-th attribute.
+      procedure, pass(self), private :: load_character   !< Load the source from a `character`.
+      procedure, pass(self), private :: load_string      !< Load the source from a `string`.
+      procedure, pass(self), private :: set_source       !< Sanitise bytes, keep them as the source, index the lines.
+      procedure, pass(self), private :: line_ok          !< Check a line number, set the status.
 endtype markdown_document
 
 contains
    ! life cycle
    subroutine initialize(self, capacity, stat, errmsg)
-   !< Reset to a document holding only its root (node 1, `NODE_DOCUMENT`); `capacity` nodes are allocated up front.
+   !< Reset to a document holding only its root (node 1, `NODE_DOCUMENT`); `capacity` nodes are allocated up front. The
+   !< source, if one was loaded, is kept.
    class(markdown_document),  intent(inout)         :: self     !< Document.
    integer(I4P),              intent(in),  optional :: capacity !< Nodes to allocate (default 64; arrays grow anyway).
    integer(I4P),              intent(out), optional :: stat     !< Status.
@@ -159,10 +186,10 @@ contains
    call status_ok(stat, errmsg)
    cap = CAPACITY_DEFAULT
    if (present(capacity)) cap = max(1_I4P, capacity)
-   call self%destroy
+   call destroy_tree(self)
    call self%allocate_pools(cap, ierr)
    if (ierr /= 0) then
-      call self%destroy
+      call destroy_tree(self)
       call status_error(BARUCH_ERR_ALLOCATION, 'markdown_document%initialize: cannot allocate '//istr(cap)//' nodes', &
                         stat, errmsg)
       return
@@ -173,34 +200,13 @@ contains
    endsubroutine initialize
 
    pure subroutine destroy(self)
-   !< Free everything: an empty, uninitialised document (the next edit initialises it).
+   !< Free everything, the source too: an empty, uninitialised document (the next edit initialises it).
    class(markdown_document), intent(inout) :: self !< Document.
 
-   self%nodes_last = 0_I4P
-   self%nodes_live = 0_I4P
-   if (allocated(self%kind_)) deallocate(self%kind_)
-   if (allocated(self%parent_)) deallocate(self%parent_)
-   if (allocated(self%first_)) deallocate(self%first_)
-   if (allocated(self%last_)) deallocate(self%last_)
-   if (allocated(self%prev_)) deallocate(self%prev_)
-   if (allocated(self%next_)) deallocate(self%next_)
-   if (allocated(self%span_)) deallocate(self%span_)
-   if (allocated(self%ints_)) deallocate(self%ints_)
-   if (allocated(self%strs_)) deallocate(self%strs_)
-   if (allocated(self%attrs_)) deallocate(self%attrs_)
-   if (allocated(self%chars_)) deallocate(self%chars_)
-   self%chars_used = 0_I4P
-   if (allocated(self%string_first_)) deallocate(self%string_first_)
-   if (allocated(self%string_len_)) deallocate(self%string_len_)
-   self%strings_used = 0_I4P
-   if (allocated(self%attr_name_)) deallocate(self%attr_name_)
-   if (allocated(self%attr_value_)) deallocate(self%attr_value_)
-   if (allocated(self%attr_next_)) deallocate(self%attr_next_)
-   self%attrs_used = 0_I4P
-   if (allocated(self%ext_kind_)) deallocate(self%ext_kind_)
-   if (allocated(self%ext_name_)) deallocate(self%ext_name_)
-   if (allocated(self%ext_inline_)) deallocate(self%ext_inline_)
-   self%ext_used = 0_I4P
+   call destroy_tree(self)
+   if (allocated(self%source_)) deallocate(self%source_)
+   if (allocated(self%line_first_)) deallocate(self%line_first_)
+   if (allocated(self%line_last_)) deallocate(self%line_last_)
    endsubroutine destroy
 
    pure function root(self) result(n)
@@ -1243,6 +1249,162 @@ contains
    endif
    endsubroutine remove_attribute
 
+   ! source
+   subroutine load_character(self, text, encoding, stat, errmsg)
+   !< Load the source from a text: `text` read in `encoding` (absent or blank: a byte order mark decides, else UTF-8),
+   !< sanitised to UTF-8 and its lines indexed; the tree is reset to the root alone. An unsupported encoding gives
+   !< `BARUCH_ERR_ARGUMENT` and leaves the document as it was.
+   class(markdown_document),  intent(inout)         :: self     !< Document.
+   character(*),              intent(in)            :: text     !< Text, any bytes.
+   character(*),              intent(in),  optional :: encoding !< Encoding name or alias.
+   integer(I4P),              intent(out), optional :: stat     !< Status.
+   character(:), allocatable, intent(out), optional :: errmsg   !< Message.
+
+   call self%set_source(text, 'load', encoding, stat, errmsg)
+   endsubroutine load_character
+
+   subroutine load_string(self, text, encoding, stat, errmsg)
+   !< Load the source from a StringiFor `string` (an unallocated one is an empty text), as the `character` version.
+   class(markdown_document),  intent(inout)         :: self     !< Document.
+   type(string),              intent(in)            :: text     !< Text, any bytes.
+   character(*),              intent(in),  optional :: encoding !< Encoding name or alias.
+   integer(I4P),              intent(out), optional :: stat     !< Status.
+   character(:), allocatable, intent(out), optional :: errmsg   !< Message.
+
+   if (allocated(text%raw)) then
+      call self%set_source(text%raw, 'load', encoding, stat, errmsg)
+   else
+      call self%set_source('', 'load', encoding, stat, errmsg)
+   endif
+   endsubroutine load_string
+
+   subroutine load_file(self, path, encoding, stat, errmsg)
+   !< Load the source from a file, read whole (stream access, `newunit=`), as `load`. A file that cannot be opened or
+   !< read gives `BARUCH_ERR_IO` and leaves the document as it was.
+   class(markdown_document),  intent(inout)         :: self     !< Document.
+   character(*),              intent(in)            :: path     !< File name.
+   character(*),              intent(in),  optional :: encoding !< Encoding name or alias.
+   integer(I4P),              intent(out), optional :: stat     !< Status.
+   character(:), allocatable, intent(out), optional :: errmsg   !< Message.
+   character(:), allocatable                        :: bytes    !< Contents of the file.
+   character(:), allocatable                        :: msg      !< Message of the read.
+   integer(I4P)                                     :: ierr     !< Status of the read.
+
+   call read_bytes(path, bytes, ierr, msg)
+   if (ierr /= 0_I4P) then
+      call status_error(BARUCH_ERR_IO, 'markdown_document%load_file: '//msg, stat, errmsg)
+      return
+   endif
+   call self%set_source(bytes, 'load_file', encoding, stat, errmsg)
+   endsubroutine load_file
+
+   pure function source(self) result(text)
+   !< Return the source: the sanitised UTF-8 the document was loaded from, its line endings as they were; empty if none.
+   class(markdown_document), intent(in) :: self !< Document.
+   character(:), allocatable            :: text !< Source.
+
+   if (allocated(self%source_)) then
+      text = self%source_
+   else
+      text = ''
+   endif
+   endfunction source
+
+   pure function source_length(self) result(length)
+   !< Return the bytes of the source, 0 if none was loaded.
+   class(markdown_document), intent(in) :: self   !< Document.
+   integer(I4P)                         :: length !< Bytes.
+
+   length = 0_I4P
+   if (allocated(self%source_)) length = len(self%source_, kind=I4P)
+   endfunction source_length
+
+   function source_slice(self, first, last, stat, errmsg) result(text)
+   !< Return the bytes `first` to `last` of the source (a span, a line): empty for `last = first - 1`; a range outside
+   !< the source gives `BARUCH_ERR_ARGUMENT` and an empty text.
+   class(markdown_document),  intent(in)            :: self   !< Document.
+   integer(I4P),              intent(in)            :: first  !< First byte.
+   integer(I4P),              intent(in)            :: last   !< Last byte.
+   integer(I4P),              intent(out), optional :: stat   !< Status.
+   character(:), allocatable, intent(out), optional :: errmsg !< Message.
+   character(:), allocatable                        :: text   !< Bytes.
+
+   text = ''
+   if (first < 1_I4P .or. last < first - 1_I4P .or. last > self%source_length()) then
+      call status_error(BARUCH_ERR_ARGUMENT, 'markdown_document%source_slice: bytes '//istr(first)//' to '// &
+                        istr(last)//' are not a range of the source (1 to '//istr(self%source_length())//')', &
+                        stat, errmsg)
+      return
+   endif
+   call status_ok(stat, errmsg)
+   if (last >= first) text = self%source_(first:last)
+   endfunction source_slice
+
+   pure function lines_number(self) result(number)
+   !< Return the number of lines of the source: a line ends at LF, CR, CRLF or the end of the source, and a final line
+   !< ending does not start one more (CommonMark 2.1); 0 for an empty source.
+   class(markdown_document), intent(in) :: self   !< Document.
+   integer(I4P)                         :: number !< Lines.
+
+   number = 0_I4P
+   if (allocated(self%line_first_)) number = size(self%line_first_, kind=I4P)
+   endfunction lines_number
+
+   function line(self, i, stat, errmsg) result(text)
+   !< Return the line `i` of the source, its ending excluded; empty, with `BARUCH_ERR_ARGUMENT`, for no such line.
+   class(markdown_document),  intent(in)            :: self   !< Document.
+   integer(I4P),              intent(in)            :: i      !< Line number, 1 to `lines_number()`.
+   integer(I4P),              intent(out), optional :: stat   !< Status.
+   character(:), allocatable, intent(out), optional :: errmsg !< Message.
+   character(:), allocatable                        :: text   !< Line.
+
+   text = ''
+   if (.not. self%line_ok(i, 'line', stat, errmsg)) return
+   text = self%source_(self%line_first_(i):self%line_last_(i))
+   endfunction line
+
+   function line_first(self, i, stat, errmsg) result(b)
+   !< Return the first byte of the line `i` in the source; 0, with `BARUCH_ERR_ARGUMENT`, for no such line.
+   class(markdown_document),  intent(in)            :: self   !< Document.
+   integer(I4P),              intent(in)            :: i      !< Line number, 1 to `lines_number()`.
+   integer(I4P),              intent(out), optional :: stat   !< Status.
+   character(:), allocatable, intent(out), optional :: errmsg !< Message.
+   integer(I4P)                                     :: b      !< First byte.
+
+   b = 0_I4P
+   if (self%line_ok(i, 'line_first', stat, errmsg)) b = self%line_first_(i)
+   endfunction line_first
+
+   function line_last(self, i, stat, errmsg) result(b)
+   !< Return the last byte of the line `i` in the source, its ending excluded (`line_first(i) - 1` for an empty line);
+   !< 0, with `BARUCH_ERR_ARGUMENT`, for no such line.
+   class(markdown_document),  intent(in)            :: self   !< Document.
+   integer(I4P),              intent(in)            :: i      !< Line number, 1 to `lines_number()`.
+   integer(I4P),              intent(out), optional :: stat   !< Status.
+   character(:), allocatable, intent(out), optional :: errmsg !< Message.
+   integer(I4P)                                     :: b      !< Last byte.
+
+   b = 0_I4P
+   if (self%line_ok(i, 'line_last', stat, errmsg)) b = self%line_last_(i)
+   endfunction line_last
+
+   function line_ending(self, i, stat, errmsg) result(ending)
+   !< Return the ending of the line `i`: LF, CR or CRLF as in the source, empty for the last line of a source that does
+   !< not end with one (and, with `BARUCH_ERR_ARGUMENT`, for no such line).
+   class(markdown_document),  intent(in)            :: self   !< Document.
+   integer(I4P),              intent(in)            :: i      !< Line number, 1 to `lines_number()`.
+   integer(I4P),              intent(out), optional :: stat   !< Status.
+   character(:), allocatable, intent(out), optional :: errmsg !< Message.
+   character(:), allocatable                        :: ending !< Ending.
+   integer(I4P)                                     :: next   !< First byte after the ending.
+
+   ending = ''
+   if (.not. self%line_ok(i, 'line_ending', stat, errmsg)) return
+   next = self%source_length() + 1_I4P
+   if (i < self%lines_number()) next = self%line_first_(i + 1_I4P)
+   ending = self%source_(self%line_last_(i) + 1_I4P:next - 1_I4P)
+   endfunction line_ending
+
    ! private helpers
    pure subroutine allocate_pools(self, capacity, ierr)
    !< Allocate every array at its initial capacity (`capacity` nodes; strings, attributes, kinds sized from it).
@@ -1525,7 +1687,86 @@ contains
                                      ' has no attribute '//istr(i), stat, errmsg)
    endfunction nth_attribute
 
+   subroutine set_source(self, bytes, proc, encoding, stat, errmsg)
+   !< Sanitise bytes, keep them as the source, index the lines and reset the tree to its root; an unsupported encoding
+   !< leaves the document as it was.
+   class(markdown_document),  intent(inout)         :: self     !< Document.
+   character(*),              intent(in)            :: bytes    !< Bytes.
+   character(*),              intent(in)            :: proc     !< Name of the calling procedure.
+   character(*),              intent(in),  optional :: encoding !< Encoding name or alias.
+   integer(I4P),              intent(out), optional :: stat     !< Status.
+   character(:), allocatable, intent(out), optional :: errmsg   !< Message.
+   character(:), allocatable                        :: text     !< Sanitised bytes.
+   character(:), allocatable                        :: msg      !< Message of the sanitising.
+   integer(I4P)                                     :: ierr     !< Status of the sanitising.
+
+   call sanitize(bytes, encoding, text, ierr, msg)
+   if (ierr /= 0_I4P) then
+      call status_error(BARUCH_ERR_ARGUMENT, 'markdown_document%'//proc//': '//msg, stat, errmsg)
+      return
+   endif
+   call self%initialize(stat=ierr)
+   if (ierr /= 0_I4P) then
+      call status_error(BARUCH_ERR_ALLOCATION, 'markdown_document%'//proc//': cannot allocate the document', &
+                        stat, errmsg)
+      return
+   endif
+   self%source_ = text
+   call index_lines(self%source_, self%line_first_, self%line_last_)
+   call status_ok(stat, errmsg)
+   endsubroutine set_source
+
+   function line_ok(self, i, proc, stat, errmsg) result(ok)
+   !< Check that a line number is a line of the source: on failure set the status (`BARUCH_ERR_ARGUMENT`), else clear
+   !< it.
+   class(markdown_document),  intent(in)            :: self   !< Document.
+   integer(I4P),              intent(in)            :: i      !< Line number.
+   character(*),              intent(in)            :: proc   !< Name of the calling procedure.
+   integer(I4P),              intent(out), optional :: stat   !< Status.
+   character(:), allocatable, intent(out), optional :: errmsg !< Message.
+   logical                                          :: ok     !< Result.
+
+   ok = i >= 1_I4P .and. i <= self%lines_number()
+   if (ok) then
+      call status_ok(stat, errmsg)
+   else
+      call status_error(BARUCH_ERR_ARGUMENT, 'markdown_document%'//proc//': '//istr(i)// &
+                        ' is not a line (the source has '//istr(self%lines_number())//')', stat, errmsg)
+   endif
+   endfunction line_ok
+
    ! non type-bound helpers
+   pure subroutine destroy_tree(self)
+   !< Free the nodes, the pools and the registered kinds; keep the source.
+   class(markdown_document), intent(inout) :: self !< Document.
+
+   self%nodes_last = 0_I4P
+   self%nodes_live = 0_I4P
+   if (allocated(self%kind_)) deallocate(self%kind_)
+   if (allocated(self%parent_)) deallocate(self%parent_)
+   if (allocated(self%first_)) deallocate(self%first_)
+   if (allocated(self%last_)) deallocate(self%last_)
+   if (allocated(self%prev_)) deallocate(self%prev_)
+   if (allocated(self%next_)) deallocate(self%next_)
+   if (allocated(self%span_)) deallocate(self%span_)
+   if (allocated(self%ints_)) deallocate(self%ints_)
+   if (allocated(self%strs_)) deallocate(self%strs_)
+   if (allocated(self%attrs_)) deallocate(self%attrs_)
+   if (allocated(self%chars_)) deallocate(self%chars_)
+   self%chars_used = 0_I4P
+   if (allocated(self%string_first_)) deallocate(self%string_first_)
+   if (allocated(self%string_len_)) deallocate(self%string_len_)
+   self%strings_used = 0_I4P
+   if (allocated(self%attr_name_)) deallocate(self%attr_name_)
+   if (allocated(self%attr_value_)) deallocate(self%attr_value_)
+   if (allocated(self%attr_next_)) deallocate(self%attr_next_)
+   self%attrs_used = 0_I4P
+   if (allocated(self%ext_kind_)) deallocate(self%ext_kind_)
+   if (allocated(self%ext_name_)) deallocate(self%ext_name_)
+   if (allocated(self%ext_inline_)) deallocate(self%ext_inline_)
+   self%ext_used = 0_I4P
+   endsubroutine destroy_tree
+
    pure subroutine clear_node(self, n, kind)
    !< Give a node a kind and nothing else: no links, no span, zero slots, no attributes.
    type(markdown_document), intent(inout) :: self !< Document.

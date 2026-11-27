@@ -1,0 +1,8 @@
+$ read_encoding
+1 (bytes 1 to 19): # Diario di viaggio
+2 (bytes 21 to 20): 
+3 (bytes 22 to 50): Caffè a Montréal: 3,50 €.
+4 (bytes 52 to 108): “Très bien”, disse l’oste — un’œuvre d’art.
+
+read as UTF-8, replacement characters (U+FFFD): 11
+a missing file is BARUCH_ERR_IO: T

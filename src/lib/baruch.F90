@@ -2,10 +2,10 @@
 module baruch
 !< BARUCH, Bidirectional AST Reader and Unparser for CommonMark, Hookable: the library's entry point.
 !<
-!< A client needs `use baruch` only. Exported so far: the document (`markdown_document`, flat node arrays and a string
-!< pool), the node kinds with the slot layout and style values (`NODE_*`, `SLOT_*`, `STRING_*`, ...), and the status
-!< codes (`BARUCH_OK`, `BARUCH_ERR_*`). The parser, the renderer, the writers and the extensions are added behind this
-!< module, step by step.
+!< A client needs `use baruch` only. Exported so far: the document (`markdown_document`, flat node arrays, a string
+!< pool, and the sanitised source it is loaded from with its line index), the node kinds with the slot layout and
+!< style values (`NODE_*`, `SLOT_*`, `STRING_*`, ...), and the status codes (`BARUCH_OK`, `BARUCH_ERR_*`). The parser,
+!< the renderer, the writers and the extensions are added behind this module, step by step.
 !<
 !< Kinds come from PENF and text from StringiFor, used here so that the library archive holds them; neither is
 !< re-exported, a client uses them directly.
@@ -29,7 +29,7 @@ use baruch_kinds_nodes, only : NODE_NONE,                                       
                                HEADING_ATX, HEADING_SETEXT, LIST_BULLET, LIST_ORDERED, CODE_INDENTED, CODE_FENCED, &
                                LINK_INLINE, LINK_FULL, LINK_COLLAPSED, LINK_SHORTCUT, LINK_AUTOLINK
 use baruch_status,      only : BARUCH_OK, BARUCH_ERR_ARGUMENT, BARUCH_ERR_NODE, BARUCH_ERR_KIND, BARUCH_ERR_LINK, &
-                               BARUCH_ERR_ALLOCATION
+                               BARUCH_ERR_ALLOCATION, BARUCH_ERR_IO
 implicit none
 private
 ! the document
@@ -52,4 +52,5 @@ public :: HEADING_ATX, HEADING_SETEXT, LIST_BULLET, LIST_ORDERED, CODE_INDENTED,
 public :: LINK_INLINE, LINK_FULL, LINK_COLLAPSED, LINK_SHORTCUT, LINK_AUTOLINK
 ! status codes
 public :: BARUCH_OK, BARUCH_ERR_ARGUMENT, BARUCH_ERR_NODE, BARUCH_ERR_KIND, BARUCH_ERR_LINK, BARUCH_ERR_ALLOCATION
+public :: BARUCH_ERR_IO
 endmodule baruch

@@ -14,10 +14,10 @@ Parsing never fails: there is no Markdown syntax error, and a malformed input is
 | UTF-8 byte order mark | stripped |
 | UTF-16 or UTF-32 with a byte order mark | converted to UTF-8 (StringiFor's `to_utf8`) |
 | Latin-1, windows-1252 | converted to UTF-8 when the caller says so (`encoding=`) |
-| LF, CR, CRLF line endings | read alike; written as LF (CRLF on option) |
+| LF, CR, CRLF line endings | read alike, kept as they are in the buffer (lines indexed); written as LF (CRLF on option) |
 
 Byte offsets (node spans, walk events) refer to the document's own sanitised buffer, which the document keeps and
-exposes, not to the caller's original bytes.
+exposes, not to the caller's original bytes. The rules in detail: [Input](/reference/input).
 
 ## Errors are returned, never stopped on
 

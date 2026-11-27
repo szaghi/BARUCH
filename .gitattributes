@@ -1,0 +1,3 @@
+# test and example inputs in other encodings and line endings: their bytes are the test, never normalised
+src/tests/data/encoding_*.md binary
+docs/examples/files/*.md binary

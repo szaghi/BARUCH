@@ -8,7 +8,7 @@ nothing recurses. Each node has
 
 - a **kind** (`NODE_*`);
 - five **links**: parent, first child, last child, previous sibling, next sibling (0 is "none");
-- a **span**: its first and last byte in the document's source (the sanitised buffer, from step 1.2 of the plan);
+- a **span**: its first and last byte in the document's [source](/reference/input), the sanitised buffer it keeps;
 - `NODE_INT_SLOTS` (6) **integer slots** and `NODE_STRING_SLOTS` (3) **string slots**, whose meaning depends on the
   kind ([the slot table](#the-slot-table));
 - a list of **named attributes**, name and value strings, for what the slots do not hold (extensions: a heading's
@@ -23,8 +23,8 @@ nvfortran and ifx. A document holds at most 2<sup>31</sup>-1 nodes and as many b
 
 | Method | |
 |---|---|
-| `initialize(capacity, stat, errmsg)` | reset to a document holding only its root; `capacity` nodes allocated up front (default 64) |
-| `destroy()` | free everything: an empty document, with no root |
+| `initialize(capacity, stat, errmsg)` | reset to a document holding only its root; `capacity` nodes allocated up front (default 64); the [source](/reference/input) is kept |
+| `destroy()` | free everything, the source too: an empty document, with no root |
 | `root()` | the root, 1; 0 for an empty document |
 | `nodes_number()` | live nodes, the root included |
 | `last_node()` | the highest handle in use, live or [tombstone](#editing): handles run from 1 to it |
@@ -108,8 +108,8 @@ nearest ancestor that has a next sibling ([the tutorial](/manual/tutorial/01-doc
 | `set_span(n, first, last, stat, errmsg)` | bytes `first` to `last` of the source; `last = first - 1` is an empty span |
 | `span_first(n)`, `span_last(n)` | 0 and -1 for a node with no span (created by hand) |
 
-A span is the slice `source(first:last)` of the document's sanitised buffer, which the document will own (plan step
-1.2); a node with no span gives an empty slice.
+A span is the slice `source_slice(first, last)` of the document's sanitised buffer ([Input](/reference/input)); a
+node with no span gives an empty slice.
 
 ## Slots
 
@@ -188,3 +188,4 @@ default result and nothing stops.
 | `BARUCH_ERR_KIND` | a typed accessor on a node of another kind |
 | `BARUCH_ERR_LINK` | an edit that would break the tree: a cycle, the root moved or unlinked, a sibling with no parent |
 | `BARUCH_ERR_ALLOCATION` | memory could not be allocated |
+| `BARUCH_ERR_IO` | a file could not be opened, read or written ([Input](/reference/input#errors)) |

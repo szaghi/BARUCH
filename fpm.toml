@@ -39,3 +39,8 @@ main = "baruch_test_toolchain.F90"
 name = "baruch_test_document"
 source-dir = "src/tests"
 main = "baruch_test_document.F90"
+
+[[test]]
+name = "baruch_test_input"
+source-dir = "src/tests"
+main = "baruch_test_input.F90"

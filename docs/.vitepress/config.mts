@@ -25,6 +25,7 @@ const docs = [
   { text: 'Reference', items: [
     { text: 'At a glance',  link: '/reference/' },
     { text: 'The document', link: '/reference/document' },
+    { text: 'Input',        link: '/reference/input' },
     { text: 'API',          link: '/api/' },
   ] },
   { text: 'Project', items: [

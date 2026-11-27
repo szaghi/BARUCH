@@ -13,6 +13,7 @@ the code; each public entity gets its row in the step that adds it. The rules ev
 | Name | Kind | | Page |
 |---|---|---|---|
 | `markdown_document` | type | the document: the flat node arrays, the string pool, the typed accessors | [The document](/reference/document) |
+| | | its source: loading from text, a `string` or a file, sanitised UTF-8, the lines | [Input](/reference/input) |
 | `NODE_*` | constants | the node kinds, one per CommonMark node type, and the ranges | [Kinds](/reference/document#kinds) |
 | `NODE_INT_SLOTS`, `NODE_STRING_SLOTS`, `SLOT_*`, `STRING_*` | constants | the slot layout per kind | [The slot table](/reference/document#the-slot-table) |
 | `HEADING_*`, `LIST_*`, `CODE_*`, `LINK_*` | constants | the values of the style and type slots | [The slot table](/reference/document#the-slot-table) |
@@ -33,7 +34,7 @@ The procedures are type-bound methods of these types.
 | Phase | Page | Contents | Plan step |
 |---|---|---|---|
 | 1. The document and the blocks | [The document](/reference/document) | nodes, kinds, accessors, editing, compaction | 1.1 |
-| | Input | loading from text, a `string` or a file; sanitising, encodings, line endings | 1.2 |
+| | [Input](/reference/input) | loading from text, a `string` or a file; sanitising, encodings, line endings | 1.2 |
 | | Extensions | the hooks, their contract, registered kinds | 1.3 |
 | | Conformance | how to run the spec suite, what is normalised, the pinned version and counts | 1.4 |
 | | Blocks | the block kinds and their fields | 1.5 |
