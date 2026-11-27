@@ -168,16 +168,20 @@ block.
   closer move under the new node, which is linked last (no ancestor walk per child). A run's text node is rewritten
   once, when the run leaves the stack, to the characters no match used. A closer of an extension's character is paired
   by its extension's `delimiter_match`, opener by opener, with its own lower bound (character, can open).
-- **Links** are resolved at `]` against the top bracket only; a link deactivates the `[` below it, the walk stopping
-  at the first inactive one; a shortcut label is looked up only when no bracket was pushed inside it, and a
+- **Links** are resolved at `]` against the top bracket only; a link deactivates the `[` below it, the walk following
+  a chain that links each bracket to the nearest `[` below it (so the `![` in between are not visited again) and
+  stopping at the first inactive one; a shortcut label is looked up only when no bracket was pushed inside it, and a
   `[label]` after `]` is scanned for at most 999 characters (cmark's devices). The references are a hash table
   ([Links and references](/reference/links#reference-definitions)).
 - **Merging.** After a block, adjacent text nodes (runs and brackets that matched nothing) are merged, one pass over
   the block's subtree, each run's literal built once.
-- **Linear time.** A code span's closer is searched for once: where the last backtick string of each length (up to
-  80) was seen is remembered, so unmatched backticks do not rescan the subject; a failed search for the end of a
-  comment, a processing instruction, a declaration or a CDATA section is remembered too (cmark's devices). The
-  pathological inputs are measured in plan step 2.6.
+- **Linear time.** A code span's closer is searched for once: where the last backtick string of each length was seen
+  is remembered (a table growing with the longest string met, so a string of any length can open a code span; cmark
+  stops at 1000), so unmatched backticks do not rescan the subject; a failed search for the end of a comment, a
+  processing instruction, a declaration or a CDATA section is remembered too (cmark's devices). An emphasis or a link
+  node is linked into the block without the document's cycle check, which walks the ancestors (the node is new, so no
+  cycle is possible): O(1) per node at any block depth. The pathological inputs and their timings are in
+  [Conformance](/reference/conformance#pathological-inputs).
 
 ## Errors
 

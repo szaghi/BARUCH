@@ -132,6 +132,10 @@ contains
    call expect('`a'//LF//'b `', 'code:a b ', 'code: a line ending as a space, one end only: no strip')
    call expect('```a`` b', 'text:```a`` b', 'code: no closer of the same length')
    call expect('`a'//BS//'`b`', 'code:a'//BS//'|text:b`', 'code: no escape inside')
+   call expect(repeat('`', 1200)//'a'//repeat('`', 3)//'b'//repeat('`', 1200), 'code:a```b', &
+               'code: 1200 backticks (no length limit, plan step 2.6)')
+   call expect('x'//repeat('`', 90)//' `` '//repeat('`', 90)//'y', 'text:x|code:``|text:y', &
+               'code: 90 backticks after a scan that met them (the table grows)')
    endsubroutine test_code_spans
 
    subroutine test_autolinks()

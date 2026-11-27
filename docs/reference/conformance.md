@@ -270,6 +270,151 @@ by 2.3 (15, 22, 23, 32, 33, 37, 638, 639) pass, and so does every other one.
 | every other section | all | all |
 | **total** | **652** | **652** |
 
-The pathological inputs (plan step 2.6) are measured there; the parser keeps cmark's devices for them already
-([Inlines](/reference/inlines#how-it-is-built)).
+The pathological inputs (plan step 2.6) are [below](#pathological-inputs).
+
+## Pathological inputs
+
+Inputs built to make a parser quadratic: thousands of openers that never close, brackets nested 10^4 deep, block quotes
+10^5 deep, backtick strings of every length. cmark keeps a list of them in its test suite; BARUCH runs the same cases,
+with the same checks of the output, and gates the time: every case must parse and render in time linear in its size.
+
+```bash
+bash scripts/pathological.sh                        # gfortran (tests-gnu): every case at n and 10n, ratios <= 15
+bash scripts/pathological.sh --mode tests-nvf       # nvfortran; --mode tests-intel for ifx
+bash scripts/pathological.sh --case backticks       # one case; --n N another base size, --max-ratio R another gate
+```
+
+`pathological.sh` builds the test alone (`src/tests/baruch_test_pathological.F90`, `--target`) into
+`build/pathological/MODE/`, as `spec.sh` builds its driver, and runs it with `--timing`: each case is built at `n` and
+`10n`, then loaded, parsed and rendered as HTML three times at each size; the best wall time of each (`system_clock`)
+and their ratio go into a table (case, n, input bytes at n, t(n), t(10n), ratio, check). A linear case gives a ratio
+near 10; the gate is **15** for every case, and the HTML of both sizes must pass the case's check. A case over the
+gate is measured again, up to 3 attempts, and the last attempt is printed with its number (`ok, attempt 2`): another
+process loading the machine stretches one measurement, while a super-linear case fails every attempt. Time the release
+modes (`tests-gnu`, `tests-nvf`, `tests-intel`): a `-debug` mode measures its checks. The exit status is 0 when every
+case passes, 1 otherwise. `scripts/run_tests.sh` runs the same program with no argument: every case once at
+`n` = 1000, checked, not timed, so CI has no timing assertion to be flaky.
+
+### The cases
+
+| | |
+|---|---|
+| Source | cmark's `test/pathological_tests.py`, <https://github.com/commonmark/cmark/blob/64efa3b3b3d35f2ffb604b57a8a9c89047cb420b/test/pathological_tests.py> (the last commit of the file; cmark `master` at `ce2acf59` on 2026-11-27) |
+| SHA-256 | `4f1ba5759781f6488c23c9b08d6e2b056b72101057c695e6e525ac2946c48a4f` |
+| Licence | BSD-2-Clause (cmark); the generators and checks are rewritten in Fortran, no file is vendored |
+
+The 25 cases of the file (24 checked on the HTML, `nested inlines` on cmark's CommonMark writer) and its commented-out
+`many references`, with the same generators, the repetition count `k` in place of cmark's constant; and 9 cases of
+BARUCH's own (marked `+`), for the scans that could rescan the subject. Each check is the case's regular expression
+written as a test on the HTML: a repeated literal searched for (most), or an anchored pattern matched by hand (`^`, `$`).
+
+| Case | Input (`k` = n unless said) | Check |
+|---|---|---|
+| `nested strong emph` | `*a **a ` × k, `b`, ` a** a*` × k | `(<em>a <strong>a ){k}b( a</strong> a</em>){k}` |
+| `many emph closers with no openers` | `a_ ` × k | `(a_ ){k-1}a_` |
+| `many emph openers with no closers` | `_a ` × k | `(_a ){k-1}_a` |
+| `many link closers with no openers` | `a]` × k | `(a\]){k}` |
+| `many link openers with no closers` | `[a` × k | `(\[a){k}` |
+| `mismatched openers and closers` | `*a_ ` × k | `(\*a_ ){k-1}\*a_` |
+| `issue #389` | `*a ` × k, `_a*_ ` × k | `(<em>a ){k}(_a</em>_ ?){k}` |
+| `openers and closers multiple of 3` | `a**b`, `c* ` × k | `a\*\*b(c\* ){k-1}c\*` |
+| `link openers and emph closers` | `[ a_` × k | `(\[ a_){k}` |
+| `pattern [ (]( repeated` | `[ (](` × k | the input |
+| `pattern ![[]() repeated` | `![[]()` × k | `(!\[<a href=""></a>){k}` |
+| `hard link/emph case` | `**x [a*b**c*](d)` and a blank line, × k (cmark: once) | `<p>**x <a href="d">a<em>b**c</em></a></p>`, k times |
+| `nested brackets` | `[` × k, `a`, `]` × k | the input |
+| `nested block quotes` | `> ` × k, `a` | `(<blockquote>\n){k}` |
+| `deeply nested lists` | `* a` indented by 0, 2, ..., 2(k-1); k = √(25 n): 500 at 10^4 | the k nested `<ul>`, exactly |
+| `U+0000 in input` | `abc` U+0000 `de` U+0000, × k (cmark: once) | `abc`, U+FFFD, `de`, U+FFFD, k times |
+| `backticks` | `e` and 1, 2, ..., k-1 backticks; k = √(625 n): 2500 at 10^4 | `` ^<p>[e`]*</p>\n$ `` |
+| `unclosed links A` | `[a](<b` × k | `(\[a]\(&lt;b){k}` |
+| `unclosed links B` | `[a](b` × k | `(\[a]\(b){k}` |
+| `unclosed <!--` | `</`, `<!--` × k | `&lt;/(&lt;!--){k}` |
+| `empty lines in deeply nested lists` | `- ` × k, `x`, LF × k | `^(<\w+>\n?)+x(</\w+>\n)+$` |
+| `empty lines in deeply nested lists in blockquote` | `> `, `- ` × k, `x`, LF, `>` LF × k | the same |
+| `emph in deep blockquote` | `>` × k, `a*` × k | `^(<\w+>\n)+<p>.*</p>\n(</\w+>\n)+$` |
+| `reference collisions` | the k keys `x0`, `x1`, ... whose cmark hash is 0 modulo 16; k-1 definitions `[key]: /url`, each followed by a paragraph `[first key]` | `(<p>\[x..]</p>\n){k-1}` |
+| `nested inlines` | `*` × k, `a`, `*` × k (k even) | cmark checks its CommonMark output; here the HTML: k/2 nested `<strong>` |
+| `many references` | `[i]: u` for i = 1..k, then `[0] ` × k (commented out in cmark) | `(\[0\] ){k-1}` |
+| `+ unclosed <?` | `x`, `<?` × k | the input, escaped |
+| `+ unclosed <![CDATA[` | `x`, `<![CDATA[` × k | the input, escaped |
+| `+ unclosed <!A` | `x`, `<!A` × k | the input, escaped |
+| `+ unclosed attribute values` | `x`, `<a b='` × k | the input, escaped |
+| `+ many &#` | `&#` × k | `(&amp;#){k}` |
+| `+ pattern [\ repeated` | `[\` × k | `[` × k, `\` |
+| `+ pattern [] repeated` | `[]` × k | the input |
+| `+ link destinations with open parentheses` | `[a](b(` × k | the input |
+| `+ link destinations with open titles` | `[a](b "` × k | the input, escaped |
+
+Two cases grow as the square of their parameter (`deeply nested lists`, `backticks`): their `k` is the one that makes
+the input 10 times larger from `n` to `10n`, cmark's own value at `n` = 10^4.
+
+### The timings
+
+`bash scripts/pathological.sh` on 2026-11-27, release modes: gfortran 16.2 (`tests-gnu`), nvfortran 26.9 (`tests-nvf`),
+ifx 2026.2 (`tests-intel`), one WSL2 machine shared with other builds (load about 4.5 on 16 threads). Each entry is
+t(10n)/t(n); every case passes its check at both sizes with every compiler. The largest ratio is 14.88 with gfortran
+(`issue #389`, on its second attempt; 11.6 to 12.3 in earlier runs), 11.92 with nvfortran and 12.36 with ifx. What
+lifts a ratio above 10 is the load and the cache, not the algorithm: `link openers and emph closers` costs 0.63, 0.82,
+0.86, 0.90 and 0.94 µs per repetition at n = 10^4, 3·10^4, 10^5, 3·10^5 and 10^6 (gfortran), the step from 10^4 to 10^5
+being the input leaving the cache, 9% more from 10^5 to 10^6.
+
+| Case | n | Bytes at n | gfortran | nvfortran | ifx |
+|---|---:|---:|---:|---:|---:|
+| `nested strong emph` | 10,000 | 140,001 | 10.84 | 10.28 | 10.70 |
+| `many emph closers with no openers` | 10,000 | 30,000 | 7.45 | 9.74 | 10.20 |
+| `many emph openers with no closers` | 10,000 | 30,000 | 12.56 | 10.64 | 10.14 |
+| `many link closers with no openers` | 10,000 | 20,000 | 12.32 | 10.59 | 9.98 |
+| `many link openers with no closers` | 10,000 | 20,000 | 11.59 | 9.21 | 10.23 |
+| `mismatched openers and closers` | 10,000 | 40,000 | 13.03 | 11.08 | 11.14 |
+| `issue #389` | 10,000 | 80,000 | 14.88 (attempt 2) | 11.37 | 10.83 |
+| `openers and closers multiple of 3` | 10,000 | 30,004 | 9.86 | 10.44 | 9.95 |
+| `link openers and emph closers` | 10,000 | 40,000 | 8.39 | 10.76 | 11.78 |
+| `pattern [ (]( repeated` | 10,000 | 50,000 | 8.93 | 10.54 | 10.47 |
+| `pattern ![[]() repeated` | 10,000 | 60,000 | 11.92 | 10.80 | 11.99 |
+| `hard link/emph case` | 10,000 | 180,000 | 14.06 | 11.18 | 11.79 |
+| `nested brackets` | 10,000 | 20,001 | 9.54 | 10.15 | 10.18 |
+| `nested block quotes` | 10,000 | 20,001 | 9.96 | 10.27 | 10.77 |
+| `deeply nested lists` | 10,000 | 251,500 | 10.98 | 8.93 | 9.41 |
+| `U+0000 in input` | 10,000 | 70,000 | 12.92 | 11.59 | 12.36 |
+| `backticks` | 1,000 | 313,235 | 13.84 | 11.92 | 10.89 |
+| `unclosed links A` | 10,000 | 60,000 | 11.08 | 10.26 | 10.16 |
+| `unclosed links B` | 10,000 | 50,000 | 12.38 | 10.28 | 10.15 |
+| `unclosed <!--` | 10,000 | 40,002 | 6.68 (attempt 2) | 9.90 | 10.34 |
+| `empty lines in deeply nested lists` | 10,000 | 30,001 | 12.17 | 10.36 | 10.25 |
+| `empty lines in deeply nested lists in blockquote` | 10,000 | 40,004 | 12.91 | 10.31 | 9.93 |
+| `emph in deep blockquote` | 10,000 | 30,000 | 14.27 | 11.38 | 10.93 |
+| `reference collisions` | 10,000 | 223,036 | 11.16 | 10.97 | 10.60 |
+| `nested inlines` | 10,000 | 20,001 | 10.18 | 10.11 | 10.01 |
+| `many references` | 10,000 | 138,894 | 12.10 | 11.26 | 11.56 |
+| `+ unclosed <?` | 10,000 | 20,001 | 11.26 | 10.68 | 10.37 |
+| `+ unclosed <![CDATA[` | 10,000 | 90,001 | 12.24 | 11.13 | 11.47 |
+| `+ unclosed <!A` | 10,000 | 30,001 | 10.62 | 9.81 | 10.32 |
+| `+ unclosed attribute values` | 10,000 | 60,001 | 10.01 | 10.85 | 10.67 |
+| `+ many &#` | 10,000 | 20,000 | 10.51 | 10.44 | 10.59 |
+| `+ pattern [\ repeated` | 10,000 | 20,000 | 9.21 | 9.91 | 9.22 |
+| `+ pattern [] repeated` | 10,000 | 20,000 | 9.97 | 10.79 | 10.70 |
+| `+ link destinations with open parentheses` | 10,000 | 60,000 | 10.32 | 10.46 | 9.97 |
+| `+ link destinations with open titles` | 10,000 | 70,000 | 10.29 | 10.08 | 10.29 |
+
+### What was quadratic
+
+The step found two super-linear cases and fixed the parser (652/652 and 237/237 unchanged):
+
+- **`emph in deep blockquote`** (ratio 98 at 10^4 with gfortran): the parser linked each new emphasis and link node
+  with `insert_after`/`insert_before`, whose cycle check walks the ancestors of the parent when the node linked has
+  children: O(depth) per node, and the paragraph was 10^4 to 10^5 block quotes deep. The node is new (an extension's
+  is checked new, detached and childless by the hook contract), so no cycle is possible: the parser now links it
+  through internal unchecked twins of the two methods ([The document](/reference/document#editing)).
+- **`pattern ![[]() repeated`** (ratio 58): a link deactivates the `[` below it, walking down the bracket stack to the
+  first inactive one; the walk skipped the `![` (images may contain links) but visited them, every one of them at
+  every link. Each bracket now records the nearest `[` below it, and the walk follows that chain.
+
+And one limit was a conformance defect that no spec example shows: the table of the last backtick string of each
+length stopped at 80 (cmark's stops at 1000), so a string of 81 or more backticks could never open a code span. The
+table now grows with the longest string met, reset per block only as far as it was used.
+
+`backticks` runs at `n` = 1000 (10n is then cmark's own input, 2500 strings, 3.1 MB): at `n` = 10^4 its input is 3.1
+MB and 31 MB, past the last-level cache, and a plain paragraph of `e` of those sizes, with no backtick at all, shows
+the same ratio (about 19 with gfortran: loading 13 times slower, rendering 20 times): memory, not the algorithm.
 

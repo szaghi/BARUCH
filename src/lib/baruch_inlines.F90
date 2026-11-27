@@ -22,7 +22,8 @@ module baruch_inlines
 !< - `` ` ``: a code span when a backtick string of the same length closes it (else the opening string is text); its
 !<   content has line endings as spaces and one space stripped at both ends when it has one at both ends and is not
 !<   only spaces. Where each closing length was last seen is remembered, so a subject of unmatched backticks is
-!<   read in linear time (cmark's `backticks` array);
+!<   read in linear time (cmark's `backticks` array, here growing with the longest string met, so that a string of
+!<   any length can open a code span: cmark gives up above 1000 backticks);
 !< - `&`: a character reference (`baruch_inlines_scan`), its UTF-8 bytes as text; else `&`;
 !< - `<`: a URI autolink, an email autolink (`NODE_LINK`, `LINK_AUTOLINK`, its text child), raw inline HTML (open and
 !<   closing tags, comments, processing instructions, declarations, CDATA: `NODE_HTML_INLINE`, verbatim); else `<`;
@@ -61,7 +62,7 @@ module baruch_inlines
 !< processed, and a link deactivates every `[` before it (links do not nest; the walk stops at the first inactive one,
 !< as cmark's). The look-ahead for a `[label]` is bounded by 999 characters.
 use penf,                only : I4P
-use baruch_document,     only : markdown_document
+use baruch_document,     only : markdown_document, insert_after_trusted, insert_before_trusted
 use stringifor,          only : string
 use baruch_extension,    only : extension_slot
 use baruch_kinds_nodes,  only : NODE_PARAGRAPH, NODE_HEADING, NODE_TEXT, NODE_SOFTBREAK, NODE_LINEBREAK, NODE_CODE, &
@@ -83,7 +84,6 @@ character,    parameter :: LF  = achar(10) !< Line feed.
 character,    parameter :: TAB = achar(9)  !< Tab.
 character(*), parameter :: SPECIALS = LF//'`'//BACKSLASH//'&<*_[]!' !< Bytes a text run stops at (the core's).
 character(*), parameter :: CORE_TRIGGERS = '`'//BACKSLASH//'&<*_[]!' !< Graphic bytes no extension can declare.
-integer(I4P), parameter :: BACKTICKS_MAX = 80_I4P !< Longest backtick string remembered (cmark's `MAXBACKTICKS`).
 integer(I4P), parameter :: STACK_DEFAULT = 16_I4P !< Delimiters, brackets and lines allocated up front (all grow).
 
 type :: inline_parser
@@ -124,9 +124,11 @@ type :: inline_parser
    logical,      allocatable :: bracket_image(:)       !< `![`.
    logical,      allocatable :: bracket_active(:)      !< Can still open a link.
    logical,      allocatable :: bracket_after(:)       !< Another bracket was pushed after it.
+   integer(I4P), allocatable :: bracket_link_below(:)  !< The nearest `[` (not `![`) below it, 0 if none.
    ! linear-time memory
    logical                   :: backticks_scanned = .false. !< The subject was scanned to its end for a closer.
-   integer(I4P)              :: backticks(BACKTICKS_MAX) = 0_I4P !< Last offset of a backtick string of each length.
+   integer(I4P), allocatable :: backticks(:)         !< Last offset of a backtick string of each length (grows).
+   integer(I4P)              :: backticks_longest = 0_I4P !< The longest backtick string met in the block.
    logical                   :: no_comment_end = .false.     !< No `-->` after some `<!--`: none after any later.
    logical                   :: no_pi_end = .false.          !< No `?>` after some `<?`.
    logical                   :: no_declaration_end = .false. !< No `>` after some `<!X`.
@@ -204,7 +206,10 @@ contains
             p%delim_next(STACK_DEFAULT), p%delim_open(STACK_DEFAULT), p%delim_close(STACK_DEFAULT),         &
             p%delim_slot(STACK_DEFAULT))
    allocate(p%bracket_node(STACK_DEFAULT), p%bracket_pos(STACK_DEFAULT), p%bracket_delim(STACK_DEFAULT),   &
-            p%bracket_image(STACK_DEFAULT), p%bracket_active(STACK_DEFAULT), p%bracket_after(STACK_DEFAULT))
+            p%bracket_image(STACK_DEFAULT), p%bracket_active(STACK_DEFAULT), p%bracket_after(STACK_DEFAULT), &
+            p%bracket_link_below(STACK_DEFAULT))
+   allocate(p%backticks(STACK_DEFAULT))
+   p%backticks = 0_I4P
    allocate(character(256) :: p%text)
    p%specials = SPECIALS
    endsubroutine start
@@ -325,7 +330,8 @@ contains
    p%delim_top = 0_I4P
    p%brackets = 0_I4P
    p%backticks_scanned = .false.
-   p%backticks = 0_I4P
+   if (p%backticks_longest > 0_I4P) p%backticks(1:p%backticks_longest) = 0_I4P ! only what the last block set
+   p%backticks_longest = 0_I4P
    p%no_comment_end = .false.
    p%no_pi_end = .false.
    p%no_declaration_end = .false.
@@ -680,8 +686,10 @@ contains
    integer(I4P)                       :: e      !< Offset of the next backtick.
 
    closer = 0_I4P
-   if (length > BACKTICKS_MAX) return
-   if (p%backticks_scanned .and. p%backticks(length) < p%pos) return
+   if (p%backticks_scanned) then ! the strings after the cursor are all known
+      if (length > p%backticks_longest) return
+      if (p%backticks(length) < p%pos) return
+   endif
    k = p%pos
    do while (k <= p%n)
       e = index(p%subj(k:), '`', kind=I4P)
@@ -692,7 +700,9 @@ contains
          if (p%subj(k:k) /= '`') exit
          k = k + 1_I4P
       enddo
-      if (k - a <= BACKTICKS_MAX) p%backticks(k - a) = a
+      if (k - a > size(p%backticks, kind=I4P)) call grow_backticks(p, k - a)
+      p%backticks(k - a) = a
+      p%backticks_longest = max(p%backticks_longest, k - a)
       if (k - a == length) then
          closer = a
          return
@@ -700,6 +710,18 @@ contains
    enddo
    p%backticks_scanned = .true.
    endfunction closing_backticks
+
+   pure subroutine grow_backticks(p, length)
+   !< Grow the backtick table to hold a length (doubling), the new entries 0.
+   type(inline_parser), intent(inout) :: p      !< Parser.
+   integer(I4P),        intent(in)    :: length !< Length to hold.
+   integer(I4P), allocatable          :: b(:)   !< Grown copy.
+
+   allocate(b(max(length, 2_I4P * size(p%backticks, kind=I4P))))
+   b = 0_I4P
+   b(1:size(p%backticks)) = p%backticks
+   call move_alloc(b, p%backticks)
+   endsubroutine grow_backticks
 
    pure function code_content(raw) result(content)
    !< Return a code span's content: line endings as spaces, then one space removed at both ends when there is one at
@@ -1233,8 +1255,10 @@ contains
       call doc%append_child(emph, t, stat=ierr, errmsg=msg)
       t = next
    enddo
-   if (ierr == BARUCH_OK) call doc%insert_after(onode, emph, stat=ierr, errmsg=msg)
    if (ierr /= BARUCH_OK) return
+   ! a new node (an extension's was checked new, detached, childless by `new_inline`): no cycle is possible, so no
+   ! ancestor walk (`insert_after`'s check costs O(block depth) per emphasis: quadratic in deep block quotes)
+   call insert_after_trusted(doc, onode, emph)
    if (p%delim_count(opener) == 0_I4P) then
       call retire_delimiter(p, doc, opener, ierr, msg)
       if (ierr /= BARUCH_OK) return
@@ -1269,6 +1293,7 @@ contains
       call grow_logical(p%bracket_image)
       call grow_logical(p%bracket_active)
       call grow_logical(p%bracket_after)
+      call grow(p%bracket_link_below)
    endif
    if (p%brackets > 0_I4P) p%bracket_after(p%brackets) = .true.
    p%brackets = p%brackets + 1_I4P
@@ -1279,7 +1304,21 @@ contains
    p%bracket_image(b) = image
    p%bracket_active(b) = .true.
    p%bracket_after(b) = .false.
+   p%bracket_link_below(b) = 0_I4P
+   if (b > 1_I4P) p%bracket_link_below(b) = top_link(p, b - 1_I4P)
    endsubroutine push_bracket
+
+   pure function top_link(p, b) result(k)
+   !< Return the nearest `[` (not `![`) at or below bracket `b`, 0 if none.
+   type(inline_parser), intent(in) :: p !< Parser.
+   integer(I4P),        intent(in) :: b !< Bracket.
+   integer(I4P)                    :: k !< Link bracket.
+
+   k = b
+   if (k > 0_I4P) then
+      if (p%bracket_image(k)) k = p%bracket_link_below(k)
+   endif
+   endfunction top_link
 
    subroutine handle_close_bracket(p, doc, slots, ierr, msg)
    !< A `]`. With an active bracket on top of the stack, try an inline link, then a full, collapsed or shortcut
@@ -1431,17 +1470,21 @@ contains
       call doc%append_child(link, t, stat=ierr, errmsg=msg)
       t = next
    enddo
-   if (ierr == BARUCH_OK) call doc%insert_before(opener, link, stat=ierr, errmsg=msg)
-   if (ierr == BARUCH_OK) call doc%unlink(opener, stat=ierr, errmsg=msg)
+   if (ierr /= BARUCH_OK) return
+   call insert_before_trusted(doc, opener, link) ! a new node: no cycle, no ancestor walk (O(block depth) per link)
+   call doc%unlink(opener, stat=ierr, errmsg=msg)
    if (ierr /= BARUCH_OK) return
    call process_emphasis(p, doc, slots, p%bracket_delim(b), ierr, msg)
    if (ierr /= BARUCH_OK) return
    p%brackets = b - 1_I4P
    if (.not. p%bracket_image(b)) then ! links do not nest: the `[` before this one open nothing any more
-      do k=p%brackets, 1_I4P, -1_I4P
-         if (p%bracket_image(k)) cycle
+      ! along the chain of the `[` only: walking the whole stack would visit every `![` below again at each link
+      ! (quadratic on `![[]()` repeated, plan szaghi/BARUCH#1 step 2.6)
+      k = top_link(p, p%brackets)
+      do while (k > 0_I4P)
          if (.not. p%bracket_active(k)) exit ! the ones below were deactivated by an earlier link
          p%bracket_active(k) = .false.
+         k = p%bracket_link_below(k)
       enddo
    endif
    endsubroutine add_link

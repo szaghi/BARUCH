@@ -18,7 +18,7 @@ step by step, is [szaghi/BARUCH#1](https://github.com/szaghi/BARUCH/issues/1).
 
 ## What it is for
 
-- **Reader** (written: 652/652 at plan step 2.4; the pathological inputs are timed at step 2.6): CommonMark 0.31.2,
+- **Reader** (written: 652/652 at plan step 2.4; cmark's pathological inputs in linear time at step 2.6): CommonMark 0.31.2,
   checked against the 652 examples of the specification. The block structure is parsed first
   ([Blocks](/reference/blocks)), the inline content of each block second ([Inlines](/reference/inlines)), as the specification describes it.
 - **HTML renderer** (written, [HTML](/reference/html)): an HTML fragment by default (no `<html>` wrapper, no external

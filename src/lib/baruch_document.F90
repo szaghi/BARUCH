@@ -31,6 +31,7 @@ use baruch_status
 implicit none
 private
 public :: markdown_document
+public :: insert_before_trusted, insert_after_trusted ! the library's own parsers only, not exported by `baruch`
 
 integer(I4P), parameter :: CAPACITY_DEFAULT = 64_I4P !< Nodes allocated by `initialize` when no capacity is given.
 integer(I4P), parameter :: LITERAL_KINDS(5) = [NODE_TEXT, NODE_CODE, NODE_HTML_INLINE, NODE_HTML_BLOCK, &
@@ -518,22 +519,11 @@ contains
    integer(I4P),              intent(out), optional :: stat    !< Status.
    character(:), allocatable, intent(out), optional :: errmsg  !< Message.
    integer(I4P)                                     :: p       !< Parent.
-   integer(I4P)                                     :: s       !< Previous sibling of `sibling`.
 
    if (.not. sibling_ok(self, sibling, node, 'insert_before', stat, errmsg)) return
    p = self%parent_(sibling)
    if (.not. self%link_ok(p, node, 'insert_before', stat, errmsg)) return
-   call self%detach(node)
-   s = self%prev_(sibling)
-   self%parent_(node) = p
-   self%prev_(node) = s
-   self%next_(node) = sibling
-   self%prev_(sibling) = node
-   if (s /= 0_I4P) then
-      self%next_(s) = node
-   else
-      self%first_(p) = node
-   endif
+   call insert_before_trusted(self, sibling, node)
    endsubroutine insert_before
 
    subroutine insert_after(self, sibling, node, stat, errmsg)
@@ -544,22 +534,11 @@ contains
    integer(I4P),              intent(out), optional :: stat    !< Status.
    character(:), allocatable, intent(out), optional :: errmsg  !< Message.
    integer(I4P)                                     :: p       !< Parent.
-   integer(I4P)                                     :: s       !< Next sibling of `sibling`.
 
    if (.not. sibling_ok(self, sibling, node, 'insert_after', stat, errmsg)) return
    p = self%parent_(sibling)
    if (.not. self%link_ok(p, node, 'insert_after', stat, errmsg)) return
-   call self%detach(node)
-   s = self%next_(sibling)
-   self%parent_(node) = p
-   self%prev_(node) = sibling
-   self%next_(node) = s
-   self%next_(sibling) = node
-   if (s /= 0_I4P) then
-      self%prev_(s) = node
-   else
-      self%last_(p) = node
-   endif
+   call insert_after_trusted(self, sibling, node)
    endsubroutine insert_after
 
    subroutine unlink(self, n, stat, errmsg)
@@ -1617,6 +1596,55 @@ contains
    endif
    ok = .true.
    endfunction link_ok
+
+   pure subroutine insert_before_trusted(self, sibling, node)
+   !< `insert_before` with no check, for the library's own parsers (not exported by `baruch`): the caller guarantees
+   !< that `sibling` is a live node with a parent and `node` a live node that is neither `sibling`'s parent nor one of
+   !< its ancestors. `insert_before`'s cycle check walks the ancestors of the parent when `node` has children: O(depth)
+   !< per call, quadratic for a parser that links one node with children per emphasis or link of a paragraph nested
+   !< 10^5 block quotes deep (plan szaghi/BARUCH#1, step 2.6, "emph in deep blockquote").
+   class(markdown_document), intent(inout) :: self    !< Document.
+   integer(I4P),             intent(in)    :: sibling !< Sibling.
+   integer(I4P),             intent(in)    :: node    !< Node to link.
+   integer(I4P)                            :: p       !< Parent.
+   integer(I4P)                            :: s       !< Previous sibling of `sibling`.
+
+   call self%detach(node)
+   p = self%parent_(sibling)
+   s = self%prev_(sibling)
+   self%parent_(node) = p
+   self%prev_(node) = s
+   self%next_(node) = sibling
+   self%prev_(sibling) = node
+   if (s /= 0_I4P) then
+      self%next_(s) = node
+   else
+      self%first_(p) = node
+   endif
+   endsubroutine insert_before_trusted
+
+   pure subroutine insert_after_trusted(self, sibling, node)
+   !< `insert_after` with no check, for the library's own parsers (not exported by `baruch`); the caller's guarantees
+   !< are those of `insert_before_trusted`.
+   class(markdown_document), intent(inout) :: self    !< Document.
+   integer(I4P),             intent(in)    :: sibling !< Sibling.
+   integer(I4P),             intent(in)    :: node    !< Node to link.
+   integer(I4P)                            :: p       !< Parent.
+   integer(I4P)                            :: s       !< Next sibling of `sibling`.
+
+   call self%detach(node)
+   p = self%parent_(sibling)
+   s = self%next_(sibling)
+   self%parent_(node) = p
+   self%prev_(node) = sibling
+   self%next_(node) = s
+   self%next_(sibling) = node
+   if (s /= 0_I4P) then
+      self%prev_(s) = node
+   else
+      self%last_(p) = node
+   endif
+   endsubroutine insert_after_trusted
 
    pure subroutine detach(self, n)
    !< Take a node out of its parent's children (a detached node is left as it is); its subtree goes with it.

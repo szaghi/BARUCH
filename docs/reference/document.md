@@ -93,7 +93,9 @@ nearest ancestor that has a next sibling ([the tutorial](/manual/tutorial/01-doc
 - A node already linked elsewhere is **moved** by the four linking methods, with its subtree: no copy, no tombstone.
 - The links stay a tree: linking the root, a node under itself or under one of its descendants is refused
   (`BARUCH_ERR_LINK`). The ancestors are walked only when the node being linked has children: building a document
-  top-down, leaf by leaf, costs O(1) per link at any depth.
+  top-down, leaf by leaf, costs O(1) per link at any depth. The library's own inline parser links its new emphasis
+  and link nodes (which have children) through internal unchecked twins of `insert_before` and `insert_after`, not
+  exported by `use baruch`, so a paragraph 10^5 block quotes deep is not walked once per node.
 - **Editing never renumbers.** An unlinked node keeps its number as a tombstone: `is_node` is false, every accessor
   refuses it, its strings stay in the pool. Its subtree is visited by following the links, deepest first, with no
   recursion and no stack.
