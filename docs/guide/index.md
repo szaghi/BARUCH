@@ -4,8 +4,10 @@ BARUCH (**B**idirectional **A**ST **R**eader and **U**nparser for **C**ommonMark
 document tree and writes a tree back to Markdown, in pure Fortran.
 
 ::: warning Status
-Implemented so far: the document tree (`markdown_document`, [reference](/reference/document)) and its input (loading
-any text or file as sanitised UTF-8, [reference](/reference/input)); the parser is not written yet. This page
+Implemented so far: the document tree (`markdown_document`, [reference](/reference/document)), its input (loading
+any text or file as sanitised UTF-8, [reference](/reference/input)) and the extension interface with the options that
+hold the extensions (`markdown_extension`, `markdown_options`, [reference](/reference/extensions)), whose block hooks a
+block-parser frame drives; the CommonMark parser is not written yet. This page
 states the design the code is being written to: everything below is **planned** unless it says otherwise. The plan,
 step by step, is [szaghi/BARUCH#1](https://github.com/szaghi/BARUCH/issues/1).
 :::

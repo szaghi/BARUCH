@@ -18,6 +18,7 @@ const docs = [
   { text: 'Tutorial', items: [
     { text: 'All chapters',          link: '/manual/tutorial/' },
     { text: '1. A document by hand', link: '/manual/tutorial/01-document' },
+    { text: '2. Write an extension', link: '/manual/tutorial/02-extension' },
   ] },
   { text: 'Cookbook', items: [
     { text: 'All recipes', link: '/manual/cookbook' },
@@ -26,6 +27,7 @@ const docs = [
     { text: 'At a glance',  link: '/reference/' },
     { text: 'The document', link: '/reference/document' },
     { text: 'Input',        link: '/reference/input' },
+    { text: 'Extensions',   link: '/reference/extensions' },
     { text: 'API',          link: '/api/' },
   ] },
   { text: 'Project', items: [

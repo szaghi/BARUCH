@@ -3,15 +3,20 @@ module baruch
 !< BARUCH, Bidirectional AST Reader and Unparser for CommonMark, Hookable: the library's entry point.
 !<
 !< A client needs `use baruch` only. Exported so far: the document (`markdown_document`, flat node arrays, a string
-!< pool, and the sanitised source it is loaded from with its line index), the node kinds with the slot layout and
-!< style values (`NODE_*`, `SLOT_*`, `STRING_*`, ...), and the status codes (`BARUCH_OK`, `BARUCH_ERR_*`). The parser,
-!< the renderer, the writers and the extensions are added behind this module, step by step.
+!< pool, and the sanitised source it is loaded from with its line index), the options (`markdown_options`: the
+!< extensions registered and enabled, and `parse`), the extension interface (`markdown_extension`, its hooks, and
+!< the `BLOCK_*`, `CONTENT_*` values they answer with), the node kinds with the slot layout and style values
+!< (`NODE_*`, `SLOT_*`, `STRING_*`, ...), and the status codes (`BARUCH_OK`, `BARUCH_ERR_*`). The CommonMark parser,
+!< the renderer and the writers are added behind this module, step by step.
 !<
 !< Kinds come from PENF and text from StringiFor, used here so that the library archive holds them; neither is
 !< re-exported, a client uses them directly.
 use penf,               only : I4P
 use stringifor,         only : string
 use baruch_document,    only : markdown_document
+use baruch_extension,   only : markdown_extension, BLOCK_UNMATCHED, BLOCK_MATCHED, BLOCK_FINISHED, &
+                               CONTENT_NONE, CONTENT_BLOCKS, CONTENT_LINES
+use baruch_options,     only : markdown_options
 use baruch_kinds_nodes, only : NODE_NONE,                                                                          &
                                NODE_DOCUMENT, NODE_BLOCK_QUOTE, NODE_LIST, NODE_ITEM, NODE_CODE_BLOCK,             &
                                NODE_HTML_BLOCK, NODE_PARAGRAPH, NODE_HEADING, NODE_THEMATIC_BREAK,                 &
@@ -29,11 +34,17 @@ use baruch_kinds_nodes, only : NODE_NONE,                                       
                                HEADING_ATX, HEADING_SETEXT, LIST_BULLET, LIST_ORDERED, CODE_INDENTED, CODE_FENCED, &
                                LINK_INLINE, LINK_FULL, LINK_COLLAPSED, LINK_SHORTCUT, LINK_AUTOLINK
 use baruch_status,      only : BARUCH_OK, BARUCH_ERR_ARGUMENT, BARUCH_ERR_NODE, BARUCH_ERR_KIND, BARUCH_ERR_LINK, &
-                               BARUCH_ERR_ALLOCATION, BARUCH_ERR_IO
+                               BARUCH_ERR_ALLOCATION, BARUCH_ERR_IO, BARUCH_ERR_CONTRACT
 implicit none
 private
 ! the document
 public :: markdown_document
+! the options
+public :: markdown_options
+! the extension interface
+public :: markdown_extension
+public :: BLOCK_UNMATCHED, BLOCK_MATCHED, BLOCK_FINISHED
+public :: CONTENT_NONE, CONTENT_BLOCKS, CONTENT_LINES
 ! node kinds
 public :: NODE_NONE
 public :: NODE_DOCUMENT, NODE_BLOCK_QUOTE, NODE_LIST, NODE_ITEM, NODE_CODE_BLOCK, NODE_HTML_BLOCK, NODE_PARAGRAPH
@@ -52,5 +63,5 @@ public :: HEADING_ATX, HEADING_SETEXT, LIST_BULLET, LIST_ORDERED, CODE_INDENTED,
 public :: LINK_INLINE, LINK_FULL, LINK_COLLAPSED, LINK_SHORTCUT, LINK_AUTOLINK
 ! status codes
 public :: BARUCH_OK, BARUCH_ERR_ARGUMENT, BARUCH_ERR_NODE, BARUCH_ERR_KIND, BARUCH_ERR_LINK, BARUCH_ERR_ALLOCATION
-public :: BARUCH_ERR_IO
+public :: BARUCH_ERR_IO, BARUCH_ERR_CONTRACT
 endmodule baruch

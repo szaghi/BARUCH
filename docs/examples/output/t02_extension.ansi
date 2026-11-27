@@ -1,0 +1,22 @@
+$ t02_extension
+parse stat: 0
+document
+  paragraph
+    text "A paragraph."
+  percent_block " raw line, *not* emphasis\n   indented marker"
+  paragraph
+    text "Another paragraph."
+
+the block written back:
+%% raw line, *not* emphasis
+%%   indented marker
+
+with "percent" disabled:
+document
+  paragraph
+    text "A paragraph.\n%% raw line, *not* emphasis\n%%   indented marker"
+  paragraph
+    text "Another paragraph."
+
+stat: 7, BARUCH_ERR_CONTRACT: T
+markdown_options%parse: extension "careless", block_start at line 2, broke the hook contract: claimed a block that takes no lines without consuming input (it would be offered the same position again, forever)

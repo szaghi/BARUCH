@@ -189,3 +189,4 @@ default result and nothing stops.
 | `BARUCH_ERR_LINK` | an edit that would break the tree: a cycle, the root moved or unlinked, a sibling with no parent |
 | `BARUCH_ERR_ALLOCATION` | memory could not be allocated |
 | `BARUCH_ERR_IO` | a file could not be opened, read or written ([Input](/reference/input#errors)) |
+| `BARUCH_ERR_CONTRACT` | an extension broke the hook contract during a parse ([Extensions](/reference/extensions#the-contract)) |

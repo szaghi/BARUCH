@@ -14,6 +14,9 @@ the code; each public entity gets its row in the step that adds it. The rules ev
 |---|---|---|---|
 | `markdown_document` | type | the document: the flat node arrays, the string pool, the typed accessors | [The document](/reference/document) |
 | | | its source: loading from text, a `string` or a file, sanitised UTF-8, the lines | [Input](/reference/input) |
+| `markdown_options` | type | what a parse does: the extensions registered and enabled by name; `parse` | [Extensions](/reference/extensions#the-options) |
+| `markdown_extension` | abstract type | the extension interface: the hooks and their defaults | [Extensions](/reference/extensions#the-hooks) |
+| `BLOCK_*`, `CONTENT_*` | constants | what the block hooks answer | [Extensions](/reference/extensions#constants) |
 | `NODE_*` | constants | the node kinds, one per CommonMark node type, and the ranges | [Kinds](/reference/document#kinds) |
 | `NODE_INT_SLOTS`, `NODE_STRING_SLOTS`, `SLOT_*`, `STRING_*` | constants | the slot layout per kind | [The slot table](/reference/document#the-slot-table) |
 | `HEADING_*`, `LIST_*`, `CODE_*`, `LINK_*` | constants | the values of the style and type slots | [The slot table](/reference/document#the-slot-table) |
@@ -23,9 +26,8 @@ Planned, with their steps:
 
 | Name | Kind | | Plan step |
 |---|---|---|---|
-| `markdown_options` | type | what a parse or a write does: the enabled extensions, the encoding, the line ending, canonical output | 1.3 |
+| `markdown_options` | type | more of what a parse or a write does: the HTML output, the line ending, canonical output | 1.6, 3.2 |
 | `markdown_writer` | type | the streaming writer | 4.1 |
-| `markdown_extension` | abstract type | the extension interface | 1.3 |
 
 The procedures are type-bound methods of these types.
 
@@ -35,7 +37,7 @@ The procedures are type-bound methods of these types.
 |---|---|---|---|
 | 1. The document and the blocks | [The document](/reference/document) | nodes, kinds, accessors, editing, compaction | 1.1 |
 | | [Input](/reference/input) | loading from text, a `string` or a file; sanitising, encodings, line endings | 1.2 |
-| | Extensions | the hooks, their contract, registered kinds | 1.3 |
+| | [Extensions](/reference/extensions) | the hooks, their contract, registered kinds, the options | 1.3 |
 | | Conformance | how to run the spec suite, what is normalised, the pinned version and counts | 1.4 |
 | | Blocks | the block kinds and their fields | 1.5 |
 | | HTML | the renderer: fragment and standalone output | 1.6 |

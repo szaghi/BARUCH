@@ -19,6 +19,7 @@ public :: BARUCH_ERR_KIND
 public :: BARUCH_ERR_LINK
 public :: BARUCH_ERR_ALLOCATION
 public :: BARUCH_ERR_IO
+public :: BARUCH_ERR_CONTRACT
 
 integer(I4P), parameter :: BARUCH_OK             = 0_I4P !< Success.
 integer(I4P), parameter :: BARUCH_ERR_ARGUMENT   = 1_I4P !< An argument is out of its range.
@@ -27,6 +28,7 @@ integer(I4P), parameter :: BARUCH_ERR_KIND       = 3_I4P !< An accessor called o
 integer(I4P), parameter :: BARUCH_ERR_LINK       = 4_I4P !< An edit that would break the tree (a cycle, the root moved).
 integer(I4P), parameter :: BARUCH_ERR_ALLOCATION = 5_I4P !< Memory could not be allocated.
 integer(I4P), parameter :: BARUCH_ERR_IO         = 6_I4P !< A file could not be opened, read or written.
+integer(I4P), parameter :: BARUCH_ERR_CONTRACT   = 7_I4P !< An extension broke the hook contract.
 
 contains
    pure subroutine status_ok(stat, errmsg)
