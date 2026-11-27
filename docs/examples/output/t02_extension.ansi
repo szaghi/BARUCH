@@ -27,3 +27,19 @@ document
 
 stat: 7, BARUCH_ERR_CONTRACT: T
 markdown_options%parse: extension "careless", block_start at line 2, broke the hook contract: claimed a block that takes no lines without consuming input (it would be offered the same position again, forever)
+
+parse stat: 0
+document
+  paragraph
+    text "Dear "
+    percent_name "name"
+    text ", the "
+    mark
+      text "deadline"
+    text " is "
+    mark
+      text "Friday"
+    text ", not ==Monday=."
+  percent_block " a raw %name% line"
+<p>Dear name, the <mark>deadline</mark> is <mark>Friday</mark>, not ==Monday=.</p>
+ a raw %name% line

@@ -11,12 +11,15 @@ Written: backslash escapes, entity and numeric character references, code spans,
 soft line breaks, textual content (2.3); emphasis and strong emphasis, links and images in their four forms, the
 resolution of references against the link reference definitions (2.4, links and images on their own page:
 [Links and references](/reference/links)). Every inline section of the spec passes 100%, the whole suite 652/652
-([Conformance](/reference/conformance#counts)). The inline hooks of the extensions are plan step 2.5.
+([Conformance](/reference/conformance#counts)). The extensions' inline hooks are called (2.5): trigger bytes,
+delimiter characters paired by the delimiter algorithm, blocks of an extension with inline content
+([Extensions](/reference/extensions#inline-triggers)); with no extension enabled the parse is CommonMark's alone.
 :::
 
 ## When it runs
 
-`parse` runs the block phase ([Blocks](/reference/blocks)), then the inline phase over every paragraph and heading:
+`parse` runs the block phase ([Blocks](/reference/blocks)), then the inline phase over every paragraph and heading
+(and every block of an enabled extension whose `contains_inlines` is true):
 the block parser leaves in each one text node holding its content (its lines without their leading white space,
 joined by LF, the trailing white space of the last removed), and the inline parser replaces it with the inline nodes.
 All the link reference definitions of the document are known by then, as references need: the inline phase
@@ -25,7 +28,14 @@ compacted at the end, so a parsed document has no tombstone; the handles follow 
 (blocks first, then each block's inline nodes), not the document order: walk the links.
 
 An empty heading (`##`) has no child. Code blocks and HTML blocks have no inline content: their `literal` is the
-block parser's.
+block parser's. After the inline phase the enabled extensions' `post_process` hooks run
+([Extensions](/reference/extensions#post-processing)).
+
+**Extensions.** A byte the core does not read and an enabled extension declares is offered to it: a trigger to its
+`inline_start` (a node of its kind, linked in place with its span), a delimiter character to the delimiter algorithm
+below, paired by its `delimiter_run` and `delimiter_match` hooks. The core's bytes (`` ` `` `\` `&` `<` `*` `_` `[`
+`]` `!` and the line ending) cannot be declared, so escapes, code spans, autolinks and raw HTML hide extension syntax
+as they hide emphasis.
 
 ## Kinds and their fields
 
@@ -144,18 +154,20 @@ nothing recurses and nothing is module state: one `inline_parser` per parse hold
 block.
 
 - **The subject and the cursor.** Each block's content is the subject; one cursor reads it left to right, once. Plain
-  text is found with `scan` for the next special byte (LF, `` ` ``, `\`, `&`, `<`, `*`, `_`, `[`, `]`, `!`); a node's
-  literal is a slice or the few bytes a construct stands for. Text is accumulated and written as one node when
-  something else comes.
-- **The delimiter stack** holds the runs of `*` and `_` that can open or close (each a text node of its own):
-  character, count left, original count, first offset left, can open, can close, linked both ways through indices so
-  that a run can leave from its middle. **The bracket stack** holds the `[` and `![` (each a text node too): position,
-  image or not, active, a bracket after it, the first delimiter pushed after it.
+  text is found with `scan` for the next special byte (LF, `` ` ``, `\`, `&`, `<`, `*`, `_`, `[`, `]`, `!`, and the
+  bytes the enabled extensions declare); a node's literal is a slice or the few bytes a construct stands for. Text is
+  accumulated and written as one node when something else comes.
+- **The delimiter stack** holds the runs of `*` and `_` (and of the extensions' delimiter characters) that can open or
+  close (each a text node of its own): character, count left, original count, first offset left, can open, can close,
+  the extension owning the character, linked both ways through indices so that a run can leave from its middle. **The
+  bracket stack** holds the `[` and `![` (each a text node too): position, image or not, active, a bracket after it,
+  the first delimiter pushed after it.
 - **Emphasis** is matched by cmark's `process_emphasis`: forward over the closers, back to an opener. A closer that
   finds none raises the lower bound of later searches for its key (character, can open, original length modulo 3:
   `openers_bottom`), so no opener is looked at twice for nothing: linear. The nodes between a matched opener and
   closer move under the new node, which is linked last (no ancestor walk per child). A run's text node is rewritten
-  once, when the run leaves the stack, to the characters no match used.
+  once, when the run leaves the stack, to the characters no match used. A closer of an extension's character is paired
+  by its extension's `delimiter_match`, opener by opener, with its own lower bound (character, can open).
 - **Links** are resolved at `]` against the top bracket only; a link deactivates the `[` below it, the walk stopping
   at the first inactive one; a shortcut label is looked up only when no bracket was pushed inside it, and a
   `[label]` after `]` is scanned for at most 999 characters (cmark's devices). The references are a hash table
@@ -169,5 +181,7 @@ block.
 
 ## Errors
 
-The inline phase never fails on the text. `parse` returns a nonzero `stat` only when memory runs out or an
-extension's block hook failed before it ([Blocks](/reference/blocks#errors)).
+The inline phase never fails on the text. `parse` returns a nonzero `stat` only when memory runs out, an extension's
+hook fails (a block hook before it, an inline hook or `post_process`), or a hook breaks the
+[contract](/reference/extensions#the-contract) (`BARUCH_ERR_CONTRACT`, the message naming the extension, the hook and
+the source byte), or two enabled extensions declare one delimiter character (`BARUCH_ERR_ARGUMENT`).

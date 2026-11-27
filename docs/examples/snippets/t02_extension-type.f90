@@ -8,4 +8,7 @@ type, extends(markdown_extension) :: percent_extension
       procedure, pass(self) :: block_content  => percent_block_content
       procedure, pass(self) :: block_close    => percent_block_close
       procedure, pass(self) :: write_markdown => percent_write_markdown
+      ! inline: `%name%`
+      procedure, pass(self) :: inline_triggers => percent_inline_triggers
+      procedure, pass(self) :: inline_start    => percent_inline_start
 endtype percent_extension

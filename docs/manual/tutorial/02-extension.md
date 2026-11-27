@@ -3,7 +3,8 @@
 Every syntax beyond CommonMark, GitHub's tables as much as your own, enters BARUCH the same way: a type extending
 `markdown_extension`, registered in a `markdown_options` object, enabled when a parse should know it. This chapter
 writes a small one: the lines that start with `%%` become one raw block, a kind of its own, with nothing inside parsed
-as Markdown.
+as Markdown; in running text, `%name%` becomes a node of its own too. A second extension then marks the text between
+two `==` runs, through the same delimiter algorithm emphasis uses.
 
 ```markdown
 A paragraph.
@@ -15,8 +16,9 @@ Another paragraph.
 
 ::: info Status
 The block parser offers every position to the extensions' block hooks before CommonMark's own starts (headings,
-lists, code...: [chapter 3](./03-read)), so an extension can take syntax away from the core. The inline hooks come
-with phase 2.
+lists, code...: [chapter 3](./03-read)), so an extension can take syntax away from the core. The inline parser
+([chapter 5](./05-inlines)) offers the bytes an extension declares to its inline hooks; the bytes CommonMark reads
+(`*`, `[`, `` ` ``...) stay the core's.
 :::
 
 ## The type
@@ -24,7 +26,7 @@ with phase 2.
 <<< @/examples/snippets/t02_extension-type.f90
 
 Each binding overrides one **hook**. Every hook has a default meaning "not mine", so an extension writes only the ones
-its syntax needs: here seven of them, out of sixteen. Two have no default: `name`, which the options find it by, and
+its syntax needs: here nine of them, out of seventeen (the last two are for `%name%`, [below](#inline-syntax)). Two have no default: `name`, which the options find it by, and
 `write_markdown`, because whatever an extension reads it must be able to write back.
 
 ## Its name and its kind
@@ -33,7 +35,8 @@ its syntax needs: here seven of them, out of sixteen. Two have no default: `name
 
 A node's kind is an integer; the core kinds are below `NODE_EXTENSION_FIRST` (1000), an extension picks its own from
 there. `register_kinds` is called before every parse, so the document knows the kind by name: `kind_name(1001)` is
-`percent_block`, which is what the program prints below. Two extensions with one number (or one name) are a status
+`percent_block`, which is what the program prints below. The second kind, `percent_name`, is an inline one, for
+`%name%`. Two extensions with one number (or one name) are a status
 from the parse, not a silent mix-up.
 
 ## Opening a block
@@ -72,7 +75,8 @@ never copies: the extension decides what to keep, here the text after the marker
 <<< @/examples/snippets/t02_extension-markdown.f90
 
 The tree writer (plan step 3.2) calls `write_markdown` for every node, entering and leaving it; a node of another kind
-answers `handled = .false.`.
+answers `handled = .false.`. One hook serves both kinds of the extension: the block, and `%name%` written back as it
+was read.
 
 ## Parsing with it
 
@@ -100,6 +104,41 @@ forever. The parser checks this, and the rest of the
 
 <<< @/examples/snippets/t02_extension-contract.f90
 
+## Inline syntax
+
+Inside paragraphs, headings and any block whose content is inline, the inline parser reads the text byte by byte. An
+extension enters there in two ways.
+
+**A trigger.** `inline_triggers` returns the bytes that hand the extension the position, here `%`; `inline_start` is
+then called wherever one stands, with the whole inline content of the block (`text`) and the trigger's position:
+
+<<< @/examples/snippets/t02_extension-inline.f90
+
+The hook reads `%`, a name, `%`; on a match it creates a detached node of its inline kind and says how many bytes it
+takes, and the parser links the node in place, with its span. Anything else is "not mine" (`node = 0`): the `%` is
+text, as in `100%`. A backslash still escapes a trigger (`\%name%` is text), because escapes are the core's. A claim
+must take at least one byte, and the node must be new, detached and of an inline kind of the extension: anything else
+is the same contract status as for blocks.
+
+**A delimiter.** Some syntax cannot be read left to right: whether `==` opens a mark depends on a `==` further on,
+and on what nests in between. Such an extension declares its character and lets the core's delimiter algorithm (the
+one of emphasis) do the pairing:
+
+<<< @/examples/snippets/t02_extension-mark-type.f90
+
+<<< @/examples/snippets/t02_extension-mark.f90
+
+The parser reads every run of `=` and computes its flanking exactly as for `*`; `delimiter_run` decides whether the
+run can open or close (here: only runs of one or two). When a closer is reached, `delimiter_match` is asked about the
+nearest opener of the same character: it says how many characters each run gives (0: not this one) and creates the
+node; the parser moves what lies between the two runs into it, emphasis and links included. This is how GitHub's
+strikethrough (`~~`) is built, with no change to the core.
+
+Both extensions, enabled in one options object; the `%%` block stays raw (its `contains_inlines` is false), and the
+`%name%` node has no `write_html`, so the renderer writes its content:
+
+<<< @/examples/snippets/t02_extension-inline-parse.f90
+
 ## Running it
 
 <<< @/examples/output/t02_extension.ansi{ansi}
@@ -111,7 +150,9 @@ The whole program:
 ::: tip What you learned
 An extension is a type extending `markdown_extension` that overrides the hooks its syntax needs; it registers its
 kinds, claims positions in `block_start`, continues its blocks in `block_continue`, says what they hold in
-`block_content` and receives their lines in `block_close`. The options hold the extensions and enable them by name;
-`parse` uses the enabled ones. A hook that breaks the contract is a status, not a hang.
+`block_content` and receives their lines in `block_close`. Inline syntax enters through trigger bytes
+(`inline_triggers`, `inline_start`) or delimiter characters paired by the core's algorithm (`delimiter_chars`,
+`delimiter_run`, `delimiter_match`). The options hold the extensions and enable them by name; `parse` uses the enabled
+ones. A hook that breaks the contract is a status, not a hang.
 Reference: [Extensions](/reference/extensions).
 :::

@@ -6,4 +6,4 @@ call doc%load('A paragraph.'//LF//                     &
 call options%register(percent_extension())
 call options%parse(doc, stat=stat, errmsg=errmsg)
 print '(A,I0)', 'parse stat: ', stat
-call print_tree
+call print_tree(doc)

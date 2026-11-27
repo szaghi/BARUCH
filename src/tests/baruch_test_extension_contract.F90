@@ -6,13 +6,19 @@ program baruch_test_extension_contract
 !< its registered kind; a container extension holds blocks, refuses what `can_contain` refuses, and keeps a lazy
 !< paragraph line; a block-start hook reads the open paragraph's lines and takes the last one; every way of breaking
 !< the hook contract gives `stat = BARUCH_ERR_CONTRACT` and a message, and the parse ends (no loop); the options
-!< register, enable, disable and copy extensions by name, and a kind clash between two extensions is a status. The
-!< extensions are in `baruch_test_extensions`, written through the public interface only.
+!< register, enable, disable and copy extensions by name, and a kind clash between two extensions is a status.
+!<
+!< The gate of plan step 2.5: an inline trigger (`%name%`) gives nodes of its kind, inside emphasis, links and headings,
+!< escapes keeping the core's meaning; a delimiter character (`=`) takes part in the delimiter algorithm, the extension
+!< deciding per run and per match; a block of an extension whose content is inline is inline-parsed; `post_process`
+!< runs after the inlines and the tree is compacted after it; every way of breaking the inline contract is a status.
+!< The extensions are in `baruch_test_extensions`, written through the public interface only.
 use baruch
 use baruch_test_extensions
 use penf, only : I4P
 implicit none
 character, parameter :: LF = achar(10) !< Line feed.
+character, parameter :: BS = achar(92) !< Backslash (not a literal: nvfortran reads it as an escape).
 integer              :: failures       !< Failed checks.
 
 failures = 0
@@ -23,6 +29,11 @@ call test_caption
 call test_contract
 call test_options
 call test_long
+call test_inline_trigger
+call test_delimiter
+call test_inline_block
+call test_inline_contract
+call test_inline_long
 if (failures > 0) then
    print '(A,I0,A)', 'baruch_test_extension_contract: ', failures, ' failure(s)'
    error stop 1
@@ -257,6 +268,190 @@ contains
    call opts%parse(doc, stat=stat)
    call check(stat == BARUCH_OK .and. doc%children_number(doc%root()) == 2000, 'long: 2000 notes')
    endsubroutine test_long
+
+   subroutine test_inline_trigger()
+   !< `%name%` nodes: kind, literal, span, where they can appear; what is not one stays text; post-process.
+   type(markdown_document)   :: doc    !< Document.
+   type(markdown_options)    :: opts   !< Options.
+   integer(I4P)              :: p      !< Paragraph.
+   integer(I4P)              :: n      !< Node.
+   integer(I4P)              :: stat   !< Status.
+   character(:), allocatable :: errmsg !< Message.
+   character(:), allocatable :: html   !< HTML.
+
+   call opts%register(xvar_extension())
+   call doc%load('Hi %who%, %a b% and 100%.'//LF)
+   call opts%parse(doc, stat=stat, errmsg=errmsg)
+   call check(stat == BARUCH_OK, 'xvar: parse stat '//errmsg)
+   p = doc%first_child(doc%root())
+   call check(doc%children_number(p) == 3, 'xvar: text, xvar, text')
+   n = doc%first_child(p)
+   call check(doc%node_kind(n) == NODE_TEXT .and. doc%literal(n) == 'Hi ', 'xvar: text before')
+   n = doc%next_sibling(n)
+   call check(doc%node_kind(n) == KIND_XVAR .and. doc%kind_name(KIND_XVAR) == 'xvar', 'xvar: its kind')
+   call check(doc%literal(n) == 'who', 'xvar: literal "'//doc%literal(n)//'"')
+   call check(doc%source_slice(doc%span_first(n), doc%span_last(n)) == '%who%', 'xvar: span')
+   call check(doc%attribute(n, 'index') == '1', 'xvar: numbered by post_process')
+   n = doc%next_sibling(n)
+   call check(doc%literal(n) == ', %a b% and 100%.', 'xvar: not mine is text, merged "'//doc%literal(n)//'"')
+   call opts%render_html(doc, html)
+   call check(html == '<p>Hi <var>who</var>, %a b% and 100%.</p>'//LF, 'xvar: html "'//html//'"')
+   ! escaped, in emphasis, in a link, in a heading, across lines, numbered in document order, dropped by post_process
+   call doc%load('# T %h%'//LF//LF//BS//'%e% *%x%* [%y%](u) %drop% a'//LF//'  %z%'//LF)
+   call opts%parse(doc, stat=stat, errmsg=errmsg)
+   call check(stat == BARUCH_OK, 'xvar: second parse stat '//errmsg)
+   call opts%render_html(doc, html)
+   call check(html == '<h1>T <var>h</var></h1>'//LF//'<p>%e% <em><var>x</var></em> <a href="u"><var>y</var></a>  a'// &
+              LF//'<var>z</var></p>'//LF, 'xvar: html "'//html//'"')
+   n = doc%last_child(doc%last_child(doc%root()))
+   call check(doc%node_kind(n) == KIND_XVAR .and. doc%attribute(n, 'index') == '4', 'xvar: the last is the fourth')
+   call check(doc%source_slice(doc%span_first(n), doc%span_last(n)) == '%z%', 'xvar: span on the second line')
+   call check(doc%nodes_number() == doc%last_node(), 'xvar: compacted after post_process')
+   ! disabled: text
+   call opts%disable('xvar')
+   call opts%parse(doc, stat=stat)
+   call opts%render_html(doc, html)
+   call check(index(html, '<var>') == 0 .and. index(html, '%drop%') > 0, 'xvar: disabled, text')
+   endsubroutine test_inline_trigger
+
+   subroutine test_delimiter()
+   !< `=` runs through the delimiter algorithm: the extension decides per run and per match.
+   type(markdown_document)   :: doc    !< Document.
+   type(markdown_options)    :: opts   !< Options.
+   integer(I4P)              :: p      !< Paragraph.
+   integer(I4P)              :: n      !< Node.
+   integer(I4P)              :: stat   !< Status.
+   character(:), allocatable :: errmsg !< Message.
+   character(:), allocatable :: html   !< HTML.
+   integer(I4P)              :: k      !< Case.
+   character(*), parameter   :: cases(2, 9) = reshape([character(48) ::                                    &
+      '==hi== and =one=',                 '<p><mark>hi</mark> and <mark>one</mark></p>',               &
+      '===no=== x',                       '<p>===no=== x</p>',                                         &
+      '==a= b',                           '<p>==a= b</p>',                                             &
+      '==*a*==',                          '<p><mark><em>a</em></mark></p>',                            &
+      '*==a*==',                          '<p><em>==a</em>==</p>',                                     &
+      '[==a==](u) =b',                    '<p><a href="u"><mark>a</mark></a> =b</p>',                  &
+      'a == b == c',                      '<p>a == b == c</p>',                                        &
+      BS//'==a==',                        '<p>==a==</p>',                                              &
+      '=a ==b== c=',                      '<p><mark>a <mark>b</mark> c</mark></p>'], [2, 9])
+
+   call opts%register(mark_extension())
+   call doc%load('x ==hi== y'//LF)
+   call opts%parse(doc, stat=stat, errmsg=errmsg)
+   call check(stat == BARUCH_OK, 'mark: parse stat '//errmsg)
+   p = doc%first_child(doc%root())
+   n = doc%next_sibling(doc%first_child(p))
+   call check(doc%node_kind(n) == KIND_MARK .and. doc%kind_name(KIND_MARK) == 'mark', 'mark: its kind')
+   call check(doc%source_slice(doc%span_first(n), doc%span_last(n)) == '==hi==', 'mark: span')
+   call check(doc%children_number(n) == 1 .and. doc%literal(doc%first_child(n)) == 'hi', 'mark: its content')
+   call check(doc%children_number(p) == 3, 'mark: text, mark, text')
+   do k=1, size(cases, 2)
+      call doc%load(trim(cases(1, k)))
+      call opts%parse(doc, stat=stat, errmsg=errmsg)
+      call opts%render_html(doc, html)
+      call check(stat == BARUCH_OK .and. html == trim(cases(2, k))//LF, &
+                 'mark: "'//trim(cases(1, k))//'" gives "'//html//'"')
+   enddo
+   ! two extensions declaring one delimiter
+   call opts%register(broken_inline_extension(mode=8_I4P))
+   call opts%parse(doc, stat=stat, errmsg=errmsg)
+   call check(stat == BARUCH_ERR_ARGUMENT .and. index(errmsg, '"mark" and "broken_inline"') > 0, &
+              'mark: a delimiter declared twice "'//errmsg//'"')
+   endsubroutine test_delimiter
+
+   subroutine test_inline_block()
+   !< A block of an extension whose content is inline: read as a paragraph, the other extensions' inlines included.
+   type(markdown_document)   :: doc    !< Document.
+   type(markdown_options)    :: opts   !< Options.
+   integer(I4P)              :: t      !< Title.
+   integer(I4P)              :: n      !< Node.
+   integer(I4P)              :: stat   !< Status.
+   character(:), allocatable :: errmsg !< Message.
+
+   call opts%register(title_extension())
+   call opts%register(xvar_extension())
+   call doc%load('para'//LF//'@@ a *b* %c%'//LF)
+   call opts%parse(doc, stat=stat, errmsg=errmsg)
+   call check(stat == BARUCH_OK, 'title: parse stat '//errmsg)
+   t = doc%last_child(doc%root())
+   call check(doc%node_kind(t) == KIND_TITLE .and. doc%children_number(t) == 4, 'title: four inline children')
+   n = doc%first_child(t)
+   call check(doc%literal(n) == 'a ', 'title: text')
+   n = doc%next_sibling(n)
+   call check(doc%node_kind(n) == NODE_EMPH, 'title: emphasis')
+   call check(doc%source_slice(doc%span_first(n), doc%span_last(n)) == '*b*', 'title: emphasis span')
+   n = doc%last_child(t)
+   call check(doc%node_kind(n) == KIND_XVAR .and. doc%literal(n) == 'c', 'title: an xvar')
+   call check(doc%source_slice(doc%span_first(n), doc%span_last(n)) == '%c%', 'title: xvar span')
+   endsubroutine test_inline_block
+
+   subroutine test_inline_contract()
+   !< Every way of breaking the inline contract is a status and a message, and the parse ends; a failing hook too.
+   type(markdown_document)   :: doc    !< Document.
+   integer(I4P)              :: mode   !< Way of breaking it.
+   integer(I4P)              :: stat   !< Status.
+   character(:), allocatable :: errmsg !< Message.
+
+   do mode=1, 12
+      block
+         type(markdown_options) :: fresh !< A fresh options object for each mode.
+
+         call fresh%register(broken_inline_extension(mode=mode))
+         call doc%load('a %b% ==c== d'//LF)
+         call fresh%parse(doc, stat=stat, errmsg=errmsg)
+         if (mode <= 10) then
+            call check(stat == BARUCH_ERR_CONTRACT, 'inline contract mode '//itoa(mode)//': stat')
+            call check(index(errmsg, 'broke the hook contract') > 0 .and. index(errmsg, '"broken_inline"') > 0, &
+                       'inline contract mode '//itoa(mode)//': message "'//errmsg//'"')
+         else
+            call check(stat == BARUCH_ERR_ARGUMENT .and. index(errmsg, 'failed: asked to fail') > 0, &
+                       'inline contract mode '//itoa(mode)//': "'//errmsg//'"')
+         endif
+         call check(doc%is_node(doc%root()), 'inline contract mode '//itoa(mode)//': still a tree')
+         print '(A)', 'inline contract mode '//itoa(mode)//': '//errmsg
+      endblock
+   enddo
+   endsubroutine test_inline_contract
+
+   subroutine test_inline_long()
+   !< Many inline nodes of both kinds in one paragraph: exact counts.
+   type(markdown_document)   :: doc  !< Document.
+   type(markdown_options)    :: opts !< Options.
+   character(:), allocatable :: text !< Source.
+   integer(I4P)              :: k    !< Counter.
+   integer(I4P)              :: n    !< Node.
+   integer(I4P)              :: xv   !< Xvars.
+   integer(I4P)              :: mk   !< Marks.
+   integer(I4P)              :: stat !< Status.
+
+   call opts%register(xvar_extension())
+   call opts%register(mark_extension())
+   text = ''
+   do k=1, 5000
+      text = text//'%v% ==m== = '
+   enddo
+   call doc%load(text)
+   call opts%parse(doc, stat=stat)
+   xv = 0
+   mk = 0
+   n = doc%first_child(doc%first_child(doc%root()))
+   do while (n /= 0)
+      if (doc%node_kind(n) == KIND_XVAR) xv = xv + 1
+      if (doc%node_kind(n) == KIND_MARK) mk = mk + 1
+      n = doc%next_sibling(n)
+   enddo
+   call check(stat == BARUCH_OK .and. xv == 5000 .and. mk == 5000, 'long: 5000 xvars and 5000 marks')
+   endsubroutine test_inline_long
+
+   pure function itoa(i) result(s)
+   !< An integer as text.
+   integer(I4P), intent(in)  :: i   !< Integer.
+   character(:), allocatable :: s   !< Text.
+   character(12)             :: buf !< Buffer.
+
+   write(buf, '(I0)') i
+   s = trim(buf)
+   endfunction itoa
 
    subroutine check(condition, what)
    !< Count a failed check and say which.

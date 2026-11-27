@@ -63,9 +63,11 @@ module baruch_inlines
 use penf,                only : I4P
 use baruch_document,     only : markdown_document
 use stringifor,          only : string
+use baruch_extension,    only : extension_slot
 use baruch_kinds_nodes,  only : NODE_PARAGRAPH, NODE_HEADING, NODE_TEXT, NODE_SOFTBREAK, NODE_LINEBREAK, NODE_CODE, &
                                 NODE_HTML_INLINE, NODE_EMPH, NODE_STRONG, NODE_LINK, NODE_IMAGE, SLOT_EMPHASIS_CHAR,  &
-                                SLOT_LINK_FORM, LINK_INLINE, LINK_FULL, LINK_COLLAPSED, LINK_SHORTCUT, LINK_AUTOLINK
+                                SLOT_LINK_FORM, LINK_INLINE, LINK_FULL, LINK_COLLAPSED, LINK_SHORTCUT, LINK_AUTOLINK, &
+                                NODE_EXTENSION_FIRST
 use baruch_blocks_scan,  only : BACKSLASH, is_ascii_punctuation, is_ascii_letter
 use baruch_blocks_definitions, only : scan_destination, scan_title, LABEL_MAX
 use baruch_inlines_scan, only : scan_reference, decode_references, unescape_string, scan_autolink_uri,            &
@@ -79,7 +81,8 @@ public :: parse_inlines
 
 character,    parameter :: LF  = achar(10) !< Line feed.
 character,    parameter :: TAB = achar(9)  !< Tab.
-character(*), parameter :: SPECIALS = LF//'`'//BACKSLASH//'&<*_[]!' !< Bytes a text run stops at.
+character(*), parameter :: SPECIALS = LF//'`'//BACKSLASH//'&<*_[]!' !< Bytes a text run stops at (the core's).
+character(*), parameter :: CORE_TRIGGERS = '`'//BACKSLASH//'&<*_[]!' !< Graphic bytes no extension can declare.
 integer(I4P), parameter :: BACKTICKS_MAX = 80_I4P !< Longest backtick string remembered (cmark's `MAXBACKTICKS`).
 integer(I4P), parameter :: STACK_DEFAULT = 16_I4P !< Delimiters, brackets and lines allocated up front (all grow).
 
@@ -110,6 +113,7 @@ type :: inline_parser
    integer(I4P), allocatable :: delim_first(:)         !< Offset of its first delimiter left (a closer uses its first).
    integer(I4P), allocatable :: delim_prev(:)          !< Delimiter below, 0 if none.
    integer(I4P), allocatable :: delim_next(:)          !< Delimiter above, 0 if none.
+   integer(I4P), allocatable :: delim_slot(:)          !< Slot of the extension owning its character, 0: the core.
    logical,      allocatable :: delim_open(:)          !< The run can open emphasis.
    logical,      allocatable :: delim_close(:)         !< The run can close emphasis.
    ! the bracket stack
@@ -129,14 +133,26 @@ type :: inline_parser
    logical                   :: no_cdata_end = .false.       !< No `]]>` after some `<![CDATA[`.
    ! the link reference definitions
    type(reference_map)       :: refs                         !< The document's definitions, by normalised label.
+   ! the extensions
+   character(:), allocatable :: specials                     !< Bytes a text run stops at: the core's, the extensions'.
+   logical                   :: extended = .false.           !< An enabled extension declared a byte.
+   integer(I4P), allocatable :: active(:)                    !< Slots of the enabled extensions, in order.
+   logical,      allocatable :: trigger_of(:,:)              !< `(byte, a)`: a trigger of the extension `active(a)`.
+   logical                   :: is_trigger(0:127) = .false.  !< A trigger of some extension.
+   integer(I4P)              :: delim_owner(0:127) = 0_I4P   !< Slot of the extension owning a delimiter, 0: none.
+   integer(I4P)              :: delim_index(0:127) = 0_I4P   !< Its index among the extension delimiters.
+   integer(I4P)              :: ext_delims = 0_I4P           !< Extension delimiter characters.
 endtype inline_parser
 
 contains
-   subroutine parse_inlines(doc, stat, errmsg)
+   subroutine parse_inlines(doc, slots, stat, errmsg)
    !< Parse the inline content of every paragraph and heading of a document whose blocks are parsed (as
-   !< `markdown_options%parse` leaves them): each block's text node is replaced by its inline nodes. The tree is
-   !< compacted at the end, so it holds no tombstone.
-   type(markdown_document),   intent(inout)         :: doc    !< Document.
+   !< `markdown_options%parse` leaves them), and of every block of an enabled extension whose `contains_inlines` is
+   !< true, with the inline hooks of the enabled extensions of `slots`: each block's text node is replaced by its inline
+   !< nodes. The tree is compacted at the end, so it holds no tombstone. A nonzero status comes from an extension (a
+   !< hook failing or breaking the contract, two extensions declaring one delimiter) or from memory.
+   type(markdown_document),   intent(inout)         :: doc      !< Document.
+   type(extension_slot),      intent(in)            :: slots(:) !< Extensions of the options.
    integer(I4P),              intent(out), optional :: stat   !< Status.
    character(:), allocatable, intent(out), optional :: errmsg !< Message.
    type(inline_parser)                              :: p      !< Parser state.
@@ -152,15 +168,22 @@ contains
    msg = ''
    parsed = .false.
    call start(p, doc)
+   call start_extensions(p, slots, ierr, msg)
+   if (ierr /= BARUCH_OK) then
+      call status_error(ierr, msg, stat, errmsg)
+      return
+   endif
    call p%refs%build(doc)
    last = doc%last_node()
    do n=1, last ! the blocks were all created before: the inline nodes come after `last`
       if (.not. doc%is_node(n)) cycle
-      if (doc%node_kind(n) /= NODE_PARAGRAPH .and. doc%node_kind(n) /= NODE_HEADING) cycle
+      if (doc%node_kind(n) /= NODE_PARAGRAPH .and. doc%node_kind(n) /= NODE_HEADING) then
+         if (.not. extension_inlines(p, doc, slots, doc%node_kind(n))) cycle
+      endif
       t = doc%first_child(n)
       if (t == 0_I4P) cycle
       if (doc%node_kind(t) /= NODE_TEXT .or. doc%next_sibling(t) /= 0_I4P) cycle
-      call parse_block(p, doc, n, t, ierr, msg)
+      call parse_block(p, doc, slots, n, t, ierr, msg)
       if (ierr /= BARUCH_OK) exit
       parsed = .true.
    enddo
@@ -178,16 +201,113 @@ contains
    allocate(p%line_subj(STACK_DEFAULT), p%line_src(STACK_DEFAULT))
    allocate(p%delim_node(STACK_DEFAULT), p%delim_char(STACK_DEFAULT), p%delim_count(STACK_DEFAULT),         &
             p%delim_original(STACK_DEFAULT), p%delim_first(STACK_DEFAULT), p%delim_prev(STACK_DEFAULT),     &
-            p%delim_next(STACK_DEFAULT), p%delim_open(STACK_DEFAULT), p%delim_close(STACK_DEFAULT))
+            p%delim_next(STACK_DEFAULT), p%delim_open(STACK_DEFAULT), p%delim_close(STACK_DEFAULT),         &
+            p%delim_slot(STACK_DEFAULT))
    allocate(p%bracket_node(STACK_DEFAULT), p%bracket_pos(STACK_DEFAULT), p%bracket_delim(STACK_DEFAULT),   &
             p%bracket_image(STACK_DEFAULT), p%bracket_active(STACK_DEFAULT), p%bracket_after(STACK_DEFAULT))
    allocate(character(256) :: p%text)
+   p%specials = SPECIALS
    endsubroutine start
 
-   subroutine parse_block(p, doc, block, t, ierr, msg)
+   subroutine start_extensions(p, slots, ierr, msg)
+   !< Read the enabled extensions' trigger bytes and delimiter characters (checked: graphic ASCII, not a core trigger;
+   !< a delimiter declared by one extension only): the bytes a text run stops at grow by them.
+   type(inline_parser),       intent(inout) :: p        !< Parser.
+   type(extension_slot),      intent(in)    :: slots(:) !< Extensions of the options.
+   integer(I4P),              intent(inout) :: ierr     !< Status.
+   character(:), allocatable, intent(inout) :: msg      !< Message.
+   character(:), allocatable                :: chars    !< Bytes declared.
+   integer(I4P)                             :: s        !< Slot.
+   integer(I4P)                             :: a        !< Active extension.
+   integer(I4P)                             :: i        !< Counter.
+   integer(I4P)                             :: b        !< Byte.
+
+   allocate(p%active(0))
+   do s=1, size(slots, kind=I4P)
+      if (slots(s)%enabled .and. allocated(slots(s)%ext)) p%active = [p%active, s]
+   enddo
+   allocate(p%trigger_of(0:127, size(p%active)))
+   p%trigger_of = .false.
+   do a=1, size(p%active, kind=I4P)
+      s = p%active(a)
+      chars = slots(s)%ext%inline_triggers()
+      do i=1, len(chars, kind=I4P)
+         if (.not. declarable(chars(i:i))) then
+            call contract(slots, s, 'inline_triggers', 0_I4P, undeclarable(chars(i:i)), ierr, msg)
+            return
+         endif
+         b = iachar(chars(i:i), kind=I4P)
+         p%trigger_of(b, a) = .true.
+         p%is_trigger(b) = .true.
+         if (index(p%specials, chars(i:i)) == 0) p%specials = p%specials//chars(i:i)
+      enddo
+      chars = slots(s)%ext%delimiter_chars()
+      do i=1, len(chars, kind=I4P)
+         if (.not. declarable(chars(i:i))) then
+            call contract(slots, s, 'delimiter_chars', 0_I4P, undeclarable(chars(i:i)), ierr, msg)
+            return
+         endif
+         b = iachar(chars(i:i), kind=I4P)
+         if (p%delim_owner(b) /= 0_I4P .and. p%delim_owner(b) /= s) then
+            ierr = BARUCH_ERR_ARGUMENT
+            msg = 'markdown_options%parse: extensions "'//slots(p%delim_owner(b))%ext%name()//'" and "'// &
+                  slots(s)%ext%name()//'" both declare the delimiter character "'//chars(i:i)//'"'
+            return
+         endif
+         if (p%delim_owner(b) == 0_I4P) then
+            p%ext_delims = p%ext_delims + 1_I4P
+            p%delim_owner(b) = s
+            p%delim_index(b) = p%ext_delims
+         endif
+         if (index(p%specials, chars(i:i)) == 0) p%specials = p%specials//chars(i:i)
+      enddo
+   enddo
+   p%extended = len(p%specials) > len(SPECIALS)
+   endsubroutine start_extensions
+
+   pure function declarable(c) result(is)
+   !< Return true if an extension can declare a byte as a trigger or a delimiter: graphic ASCII, not a core trigger.
+   character, intent(in) :: c  !< Byte.
+   logical               :: is !< Result.
+
+   is = iachar(c) >= 33 .and. iachar(c) <= 126 .and. index(CORE_TRIGGERS, c) == 0
+   endfunction declarable
+
+   function undeclarable(c) result(why)
+   !< Return why a byte cannot be declared.
+   character, intent(in)     :: c   !< Byte.
+   character(:), allocatable :: why !< Reason.
+
+   if (index(CORE_TRIGGERS, c) > 0) then
+      why = 'declared "'//c//'", a core trigger (the core keeps it)'
+   else
+      why = 'declared byte '//istr(iachar(c, kind=I4P))//', not a graphic ASCII character'
+   endif
+   endfunction undeclarable
+
+   function extension_inlines(p, doc, slots, kind) result(inlines)
+   !< Return true if a block kind is an enabled extension's whose content is inline (`contains_inlines`).
+   type(inline_parser),     intent(in) :: p        !< Parser.
+   type(markdown_document), intent(in) :: doc      !< Document.
+   type(extension_slot),    intent(in) :: slots(:) !< Extensions of the options.
+   integer(I4P),            intent(in) :: kind     !< Block kind.
+   logical                             :: inlines  !< Result.
+   integer(I4P)                        :: a        !< Active extension.
+
+   inlines = .false.
+   if (size(p%active) == 0 .or. kind < NODE_EXTENSION_FIRST) return
+   if (doc%kind_is_inline(kind)) return
+   do a=1, size(p%active, kind=I4P)
+      inlines = slots(p%active(a))%ext%contains_inlines(kind)
+      if (inlines) return
+   enddo
+   endfunction extension_inlines
+
+   subroutine parse_block(p, doc, slots, block, t, ierr, msg)
    !< Parse the content of one block, held by its text node `t`: the text node goes, the inline nodes come.
-   type(inline_parser),       intent(inout) :: p     !< Parser.
-   type(markdown_document),   intent(inout) :: doc   !< Document.
+   type(inline_parser),       intent(inout) :: p        !< Parser.
+   type(markdown_document),   intent(inout) :: doc      !< Document.
+   type(extension_slot),      intent(in)    :: slots(:) !< Extensions of the options.
    integer(I4P),              intent(in)    :: block !< Paragraph or heading.
    integer(I4P),              intent(in)    :: t     !< Its text node.
    integer(I4P),              intent(inout) :: ierr  !< Status.
@@ -211,12 +331,12 @@ contains
    p%no_declaration_end = .false.
    p%no_cdata_end = .false.
    do while (p%pos <= p%n)
-      call parse_inline(p, doc, ierr, msg)
+      call parse_inline(p, doc, slots, ierr, msg)
       if (ierr /= BARUCH_OK) return
    enddo
    call flush_text(p, doc, ierr, msg)
    if (ierr /= BARUCH_OK) return
-   call process_emphasis(p, doc, 1_I4P, ierr, msg)
+   call process_emphasis(p, doc, slots, 1_I4P, ierr, msg)
    if (ierr /= BARUCH_OK) return
    p%brackets = 0_I4P
    call merge_texts(doc, block, ierr, msg)
@@ -309,14 +429,19 @@ contains
    b = p%line_src(k) + o - p%line_subj(k)
    endfunction source_byte
 
-   subroutine parse_inline(p, doc, ierr, msg)
-   !< One step: the construct at the cursor, read and written (or accumulated as text); the cursor moves past it.
-   type(inline_parser),       intent(inout) :: p    !< Parser.
-   type(markdown_document),   intent(inout) :: doc  !< Document.
-   integer(I4P),              intent(inout) :: ierr !< Status.
-   character(:), allocatable, intent(inout) :: msg  !< Message.
-   integer(I4P)                             :: e    !< First special byte after the cursor (offset), past the end.
-   integer(I4P)                             :: t    !< Last byte of the text kept.
+   subroutine parse_inline(p, doc, slots, ierr, msg)
+   !< One step: the construct at the cursor, read and written (or accumulated as text); the cursor moves past it. A
+   !< byte the core does not read is offered to the extensions that declared it, as a trigger (`inline_start`), then
+   !< as a delimiter; else it is text.
+   type(inline_parser),       intent(inout) :: p        !< Parser.
+   type(markdown_document),   intent(inout) :: doc      !< Document.
+   type(extension_slot),      intent(in)    :: slots(:) !< Extensions of the options.
+   integer(I4P),              intent(inout) :: ierr     !< Status.
+   character(:), allocatable, intent(inout) :: msg      !< Message.
+   integer(I4P)                             :: e        !< First special byte after the cursor (offset), past the end.
+   integer(I4P)                             :: t        !< Last byte of the text kept.
+   integer(I4P)                             :: b        !< The byte at the cursor.
+   logical                                  :: claimed  !< An extension's inline_start took the position.
 
    select case(p%subj(p%pos:p%pos))
    case(LF)
@@ -330,7 +455,7 @@ contains
    case('<')
       call handle_pointy_brace(p, doc, ierr, msg)
    case('*', '_')
-      call handle_delim(p, doc, ierr, msg)
+      call handle_delim(p, doc, slots, ierr, msg)
    case('[')
       call push_bracket(p, doc, .false., ierr, msg)
    case('!')
@@ -343,9 +468,22 @@ contains
       call add_text(p, '!', p%pos, p%pos)
       p%pos = p%pos + 1_I4P
    case(']')
-      call handle_close_bracket(p, doc, ierr, msg)
+      call handle_close_bracket(p, doc, slots, ierr, msg)
    case default
-      e = scan(p%subj(p%pos+1:), SPECIALS, kind=I4P)
+      if (p%extended) then
+         b = iachar(p%subj(p%pos:p%pos), kind=I4P)
+         if (b < 128_I4P) then
+            if (p%is_trigger(b)) then
+               call try_inline_start(p, doc, slots, b, claimed, ierr, msg)
+               if (ierr /= BARUCH_OK .or. claimed) return
+            endif
+            if (p%delim_owner(b) /= 0_I4P) then
+               call handle_delim(p, doc, slots, ierr, msg)
+               return
+            endif
+         endif
+      endif
+      e = scan(p%subj(p%pos+1:), p%specials, kind=I4P)
       if (e == 0_I4P) then
          e = p%n + 1_I4P
       else
@@ -364,6 +502,89 @@ contains
       p%pos = e
    endselect
    endsubroutine parse_inline
+
+   subroutine try_inline_start(p, doc, slots, b, claimed, ierr, msg)
+   !< Offer the position to the `inline_start` of the extensions declaring its byte, in registration order; the first
+   !< claim, checked against the contract, is linked with its span and the cursor moves past what it consumed.
+   type(inline_parser),       intent(inout) :: p        !< Parser.
+   type(markdown_document),   intent(inout) :: doc      !< Document.
+   type(extension_slot),      intent(in)    :: slots(:) !< Extensions of the options.
+   integer(I4P),              intent(in)    :: b        !< The byte at the cursor.
+   logical,                   intent(out)   :: claimed  !< An extension took the position.
+   integer(I4P),              intent(inout) :: ierr     !< Status.
+   character(:), allocatable, intent(inout) :: msg      !< Message.
+   integer(I4P)                             :: before   !< Last node before the hook.
+   integer(I4P)                             :: a        !< Active extension.
+   integer(I4P)                             :: s        !< Its slot.
+   integer(I4P)                             :: node     !< Node claimed.
+   integer(I4P)                             :: consumed !< Bytes consumed.
+   character(:), allocatable                :: why      !< Contract violation.
+
+   claimed = .false.
+   node = 0_I4P
+   consumed = 0_I4P
+   s = 0_I4P
+   do a=1, size(p%active, kind=I4P)
+      if (.not. p%trigger_of(b, a)) cycle
+      s = p%active(a)
+      before = doc%last_node()
+      call slots(s)%ext%inline_start(doc, p%subj, p%pos, node, consumed, ierr, msg)
+      if (ierr /= BARUCH_OK) then
+         msg = hook_message(slots, s, 'inline_start', source_byte(p, p%pos), msg)
+         return
+      endif
+      if (node /= 0_I4P) exit
+   enddo
+   if (node == 0_I4P) return
+   why = new_inline(doc, node, before, .false.)
+   if (len(why) == 0 .and. (consumed < 1_I4P .or. consumed > p%n - p%pos + 1_I4P)) &
+      why = 'consumed '//istr(consumed)//' bytes of the '//istr(p%n - p%pos + 1_I4P)// &
+            ' left in the subject (a claim takes at least 1)'
+   if (len(why) > 0) then
+      call drop_detached(doc, node)
+      call contract(slots, s, 'inline_start', source_byte(p, p%pos), why, ierr, msg)
+      return
+   endif
+   call flush_text(p, doc, ierr, msg)
+   if (ierr == BARUCH_OK) call doc%set_span(node, source_byte(p, p%pos), source_byte(p, p%pos + consumed - 1_I4P), &
+                                            stat=ierr, errmsg=msg)
+   if (ierr == BARUCH_OK) call doc%append_child(p%block, node, stat=ierr, errmsg=msg)
+   if (ierr /= BARUCH_OK) return
+   p%pos = p%pos + consumed
+   claimed = .true.
+   endsubroutine try_inline_start
+
+   function new_inline(doc, node, before, childless) result(why)
+   !< Return why a node an inline hook returned breaks the contract, empty if it does not: it must be a node created
+   !< by the call (above `before`), detached, of an inline kind of an extension (and with no child, if asked).
+   type(markdown_document), intent(in) :: doc       !< Document.
+   integer(I4P),            intent(in) :: node      !< Node returned.
+   integer(I4P),            intent(in) :: before    !< Last node before the call.
+   logical,                 intent(in) :: childless !< It must have no child.
+   character(:), allocatable           :: why       !< Violation, empty if none.
+
+   why = ''
+   if (.not. doc%is_node(node)) then
+      why = 'returned node '//istr(node)//', not a node of the document'
+   elseif (node <= before) then
+      why = 'returned node '//istr(node)//', not a node created by the call'
+   elseif (doc%node_kind(node) < NODE_EXTENSION_FIRST .or. .not. doc%kind_is_inline(doc%node_kind(node))) then
+      why = 'returned node '//istr(node)//' of kind '//istr(doc%node_kind(node))//', not an inline kind of an extension'
+   elseif (doc%parent(node) /= 0_I4P) then
+      why = 'returned node '//istr(node)//', not detached (it has a parent)'
+   elseif (childless .and. doc%first_child(node) /= 0_I4P) then
+      why = 'returned node '//istr(node)//' with children (the parser moves the content into it)'
+   endif
+   endfunction new_inline
+
+   subroutine drop_detached(doc, node)
+   !< Unlink a node a hook returned against the contract, when it is a detached node (not the root): a tombstone.
+   type(markdown_document), intent(inout) :: doc  !< Document.
+   integer(I4P),            intent(in)    :: node !< Node.
+
+   if (.not. doc%is_node(node)) return
+   if (doc%parent(node) == 0_I4P .and. node /= doc%root()) call doc%unlink(node)
+   endsubroutine drop_detached
 
    subroutine handle_newline(p, doc, ierr, msg)
    !< A line ending: a hard line break after two or more spaces (from the first of them), else a soft one; the next
@@ -611,11 +832,13 @@ contains
    endif
    endfunction raw_html_length
 
-   subroutine handle_delim(p, doc, ierr, msg)
-   !< A run of `*` or `_`: a text node of its own pushed on the delimiter stack when it can open or close emphasis
-   !< (the flanking rules, with Unicode White_Space and punctuation around it), else text.
+   subroutine handle_delim(p, doc, slots, ierr, msg)
+   !< A run of `*` or `_`, or of an extension's delimiter character: a text node of its own pushed on the delimiter
+   !< stack when it can open or close (the flanking rules, with Unicode White_Space and punctuation around it; for an
+   !< extension's character, its `delimiter_run` decides from them), else text.
    type(inline_parser),       intent(inout) :: p            !< Parser.
    type(markdown_document),   intent(inout) :: doc          !< Document.
+   type(extension_slot),      intent(in)    :: slots(:)     !< Extensions of the options.
    integer(I4P),              intent(inout) :: ierr         !< Status.
    character(:), allocatable, intent(inout) :: msg          !< Message.
    character                                :: c            !< The delimiter character.
@@ -629,8 +852,11 @@ contains
    logical                                  :: right        !< Right-flanking.
    logical                                  :: can_open     !< Can open emphasis.
    logical                                  :: can_close    !< Can close emphasis.
+   integer(I4P)                             :: owner        !< Slot of the extension owning the character, 0: core.
 
    c = p%subj(p%pos:p%pos)
+   owner = 0_I4P
+   if (c /= '*' .and. c /= '_') owner = p%delim_owner(iachar(c))
    first = p%pos
    do while (p%pos <= p%n)
       if (p%subj(p%pos:p%pos) /= c) exit
@@ -640,7 +866,10 @@ contains
    call classify(p%subj, char_at(p%subj, p%pos), after_space, after_punct)
    left = .not. after_space .and. (.not. after_punct .or. before_space .or. before_punct)
    right = .not. before_space .and. (.not. before_punct .or. after_space .or. after_punct)
-   if (c == '_') then
+   if (owner /= 0_I4P) then
+      call slots(owner)%ext%delimiter_run(doc, p%subj, first, p%pos - first, left, right, before_punct, after_punct, &
+                                          can_open, can_close)
+   elseif (c == '_') then
       can_open = left .and. (.not. right .or. before_punct)
       can_close = right .and. (.not. left .or. after_punct)
    else
@@ -653,7 +882,7 @@ contains
    endif
    node = add_text_node(p, doc, first, p%pos - 1_I4P, ierr, msg)
    if (ierr /= BARUCH_OK) return
-   call push_delimiter(p, node, c, first, p%pos - first, can_open, can_close)
+   call push_delimiter(p, node, c, first, p%pos - first, can_open, can_close, owner)
    endsubroutine handle_delim
 
    pure function char_before(text, i) result(first)
@@ -711,7 +940,7 @@ contains
    punct = u%is_punct(unicode=.true.)
    endsubroutine classify
 
-   subroutine push_delimiter(p, node, c, first, count, can_open, can_close)
+   subroutine push_delimiter(p, node, c, first, count, can_open, can_close, owner)
    !< Push a delimiter run on the delimiter stack.
    type(inline_parser), intent(inout) :: p         !< Parser.
    integer(I4P),        intent(in)    :: node      !< Its text node.
@@ -720,6 +949,7 @@ contains
    integer(I4P),        intent(in)    :: count     !< Its length.
    logical,             intent(in)    :: can_open  !< It can open emphasis.
    logical,             intent(in)    :: can_close !< It can close emphasis.
+   integer(I4P),        intent(in)    :: owner     !< Slot of the extension owning its character, 0: the core.
    integer(I4P)                       :: d         !< New record.
 
    if (p%delims_used == size(p%delim_node, kind=I4P)) then
@@ -730,6 +960,7 @@ contains
       call grow(p%delim_first)
       call grow(p%delim_prev)
       call grow(p%delim_next)
+      call grow(p%delim_slot)
       call grow_logical(p%delim_open)
       call grow_logical(p%delim_close)
    endif
@@ -742,6 +973,7 @@ contains
    p%delim_first(d) = first
    p%delim_open(d) = can_open
    p%delim_close(d) = can_close
+   p%delim_slot(d) = owner
    p%delim_prev(d) = p%delim_top
    p%delim_next(d) = 0_I4P
    if (p%delim_top /= 0_I4P) p%delim_next(p%delim_top) = d
@@ -789,15 +1021,21 @@ contains
    call remove_delimiter(p, d)
    endsubroutine retire_delimiter
 
-   subroutine process_emphasis(p, doc, stack_bottom, ierr, msg)
+   subroutine process_emphasis(p, doc, slots, stack_bottom, ierr, msg)
    !< Match the delimiters from `stack_bottom` (a record number: the first pushed after a bracket, 1 for the whole
    !< stack) up into emphasis and strong emphasis, then remove them all (cmark's `process_emphasis`, spec appendix).
+   !< A closer of an extension's character is paired by its extension (`delimiter_match`, `match_extension`).
    type(inline_parser),       intent(inout) :: p                  !< Parser.
    type(markdown_document),   intent(inout) :: doc                !< Document.
+   type(extension_slot),      intent(in)    :: slots(:)           !< Extensions of the options.
    integer(I4P),              intent(in)    :: stack_bottom       !< First delimiter processed.
    integer(I4P),              intent(inout) :: ierr               !< Status.
    character(:), allocatable, intent(inout) :: msg                !< Message.
    integer(I4P)                             :: openers_bottom(0:11) !< Lower bound of the opener search, per key.
+   integer(I4P)                             :: ext_bottom(2*p%ext_delims) !< The same for the extension characters:
+                                                                  !< character index, closer can open.
+   integer(I4P)                             :: used               !< Characters an extension's match takes.
+   integer(I4P)                             :: node               !< Node of an extension's match.
    integer(I4P)                             :: closer             !< Current closer candidate.
    integer(I4P)                             :: opener             !< Opener candidate.
    integer(I4P)                             :: old_closer         !< The closer before a match moved it.
@@ -806,6 +1044,7 @@ contains
    logical                                  :: found              !< An opener matches.
 
    openers_bottom = stack_bottom
+   ext_bottom = stack_bottom
    ! the first delimiter at or above the bottom
    closer = 0_I4P
    d = p%delim_top
@@ -818,6 +1057,25 @@ contains
    do while (closer /= 0_I4P)
       if (.not. p%delim_close(closer)) then
          closer = p%delim_next(closer)
+         cycle
+      endif
+      if (p%delim_slot(closer) /= 0_I4P) then ! an extension's character
+         key = 2_I4P * p%delim_index(p%delim_char(closer)) - 1_I4P
+         if (p%delim_open(closer)) key = key + 1_I4P
+         call match_extension(p, doc, slots, closer, ext_bottom(key), opener, used, node, ierr, msg)
+         if (ierr /= BARUCH_OK) return
+         old_closer = closer
+         if (opener /= 0_I4P) then
+            call insert_emph(p, doc, opener, closer, used, node, ierr, msg)
+            if (ierr /= BARUCH_OK) return
+         else
+            closer = p%delim_next(closer)
+            ext_bottom(key) = old_closer
+            if (.not. p%delim_open(old_closer)) then
+               call retire_delimiter(p, doc, old_closer, ierr, msg)
+               if (ierr /= BARUCH_OK) return
+            endif
+         endif
          cycle
       endif
       key = mod(p%delim_original(closer), 3_I4P)
@@ -839,7 +1097,7 @@ contains
       enddo
       old_closer = closer
       if (found) then
-         call insert_emph(p, doc, opener, closer, ierr, msg)
+         call insert_emph(p, doc, opener, closer, 0_I4P, 0_I4P, ierr, msg)
          if (ierr /= BARUCH_OK) return
       else
          closer = p%delim_next(closer)
@@ -858,14 +1116,75 @@ contains
    enddo
    endsubroutine process_emphasis
 
-   subroutine insert_emph(p, doc, opener, closer, ierr, msg)
+   subroutine match_extension(p, doc, slots, closer, bottom, opener, used, node, ierr, msg)
+   !< Look for the opener of a closer of an extension's character: going down from the closer to `bottom`, each run of
+   !< the same character that can open is offered to the extension's `delimiter_match` until one is taken (`opener`
+   !< and the hook's `used` and `node`, checked against the contract); `opener = 0` if none is.
+   type(inline_parser),       intent(inout) :: p        !< Parser.
+   type(markdown_document),   intent(inout) :: doc      !< Document.
+   type(extension_slot),      intent(in)    :: slots(:) !< Extensions of the options.
+   integer(I4P),              intent(in)    :: closer   !< Closer.
+   integer(I4P),              intent(in)    :: bottom   !< Lowest opener searched.
+   integer(I4P),              intent(out)   :: opener   !< Opener taken, 0 if none.
+   integer(I4P),              intent(out)   :: used     !< Characters taken from each.
+   integer(I4P),              intent(out)   :: node     !< Node wrapping the content.
+   integer(I4P),              intent(inout) :: ierr     !< Status.
+   character(:), allocatable, intent(inout) :: msg      !< Message.
+   integer(I4P)                             :: s        !< Slot of the extension.
+   integer(I4P)                             :: before   !< Last node before the hook.
+   character                                :: c        !< The character (a variable: szaghi/BARUCH#2 B3).
+   character(:), allocatable                :: why      !< Contract violation.
+
+   s = p%delim_slot(closer)
+   c = achar(p%delim_char(closer))
+   used = 0_I4P
+   node = 0_I4P
+   opener = p%delim_prev(closer)
+   do while (opener /= 0_I4P)
+      if (opener < bottom) exit
+      if (p%delim_open(opener) .and. p%delim_char(opener) == p%delim_char(closer)) then
+         before = doc%last_node()
+         call slots(s)%ext%delimiter_match(doc, c, p%delim_count(opener), p%delim_count(closer),          &
+                                           p%delim_original(opener), p%delim_original(closer),            &
+                                           p%delim_close(opener), p%delim_open(closer), used, node, ierr, msg)
+         if (ierr /= BARUCH_OK) then
+            msg = hook_message(slots, s, 'delimiter_match', source_byte(p, p%delim_first(closer)), msg)
+            return
+         endif
+         why = ''
+         if (used < 0_I4P .or. used > min(p%delim_count(opener), p%delim_count(closer))) then
+            why = 'used '//istr(used)//' characters of runs of '//istr(p%delim_count(opener))//' and '// &
+                  istr(p%delim_count(closer))
+         elseif (used == 0_I4P .and. node /= 0_I4P) then
+            why = 'returned node '//istr(node)//' with no match (used 0)'
+         elseif (used > 0_I4P .and. node == 0_I4P) then
+            why = 'used '//istr(used)//' characters of each run but returned no node'
+         elseif (used > 0_I4P) then
+            why = new_inline(doc, node, before, .true.)
+         endif
+         if (len(why) > 0) then
+            if (node /= 0_I4P) call drop_detached(doc, node)
+            call contract(slots, s, 'delimiter_match', source_byte(p, p%delim_first(closer)), why, ierr, msg)
+            return
+         endif
+         if (used > 0_I4P) return
+      endif
+      opener = p%delim_prev(opener)
+   enddo
+   opener = 0_I4P
+   endsubroutine match_extension
+
+   subroutine insert_emph(p, doc, opener, closer, ext_used, ext_node, ierr, msg)
    !< Match an opener and a closer: two characters of each (strong emphasis) when both have two, else one; the nodes
    !< between them become the children of the new node, the delimiters between them leave the stack; an opener or a
-   !< closer with no character left goes. `closer` becomes the closer to try next (itself if characters are left).
-   type(inline_parser),       intent(inout) :: p      !< Parser.
-   type(markdown_document),   intent(inout) :: doc    !< Document.
-   integer(I4P),              intent(in)    :: opener !< Opener.
-   integer(I4P),              intent(inout) :: closer !< Closer; on exit the next one to try.
+   !< closer with no character left goes. `closer` becomes the closer to try next (itself if characters are left). An
+   !< extension's match gives the characters used and the node (`ext_used`, `ext_node`; 0 and 0 for emphasis).
+   type(inline_parser),       intent(inout) :: p        !< Parser.
+   type(markdown_document),   intent(inout) :: doc      !< Document.
+   integer(I4P),              intent(in)    :: opener   !< Opener.
+   integer(I4P),              intent(inout) :: closer   !< Closer; on exit the next one to try.
+   integer(I4P),              intent(in)    :: ext_used !< Characters an extension's match takes, 0 for emphasis.
+   integer(I4P),              intent(in)    :: ext_node !< Its node, 0 for emphasis.
    integer(I4P),              intent(inout) :: ierr   !< Status.
    character(:), allocatable, intent(inout) :: msg    !< Message.
    integer(I4P)                             :: used   !< Characters used from each.
@@ -881,6 +1200,7 @@ contains
 
    used = 1_I4P
    if (p%delim_count(opener) >= 2_I4P .and. p%delim_count(closer) >= 2_I4P) used = 2_I4P
+   if (ext_node /= 0_I4P) used = ext_used
    p%delim_count(opener) = p%delim_count(opener) - used ! an opener gives its last characters
    first = p%delim_first(opener) + p%delim_count(opener)
    last = p%delim_first(closer) + used - 1_I4P          ! a closer its first
@@ -895,12 +1215,17 @@ contains
    enddo
    onode = p%delim_node(opener)
    cnode = p%delim_node(closer)
-   if (used == 2_I4P) then
-      emph = doc%new_node(NODE_STRONG, stat=ierr, errmsg=msg)
+   if (ext_node /= 0_I4P) then
+      emph = ext_node
    else
-      emph = doc%new_node(NODE_EMPH, stat=ierr, errmsg=msg)
+      if (used == 2_I4P) then
+         emph = doc%new_node(NODE_STRONG, stat=ierr, errmsg=msg)
+      else
+         emph = doc%new_node(NODE_EMPH, stat=ierr, errmsg=msg)
+      endif
+      if (ierr == BARUCH_OK) call doc%set_int_slot(emph, SLOT_EMPHASIS_CHAR, p%delim_char(opener), stat=ierr, &
+                                                   errmsg=msg)
    endif
-   if (ierr == BARUCH_OK) call doc%set_int_slot(emph, SLOT_EMPHASIS_CHAR, p%delim_char(opener), stat=ierr, errmsg=msg)
    if (ierr == BARUCH_OK) call doc%set_span(emph, source_byte(p, first), source_byte(p, last), stat=ierr, errmsg=msg)
    t = doc%next_sibling(onode) ! the new node is linked after its children: no ancestor walk per child
    do while (ierr == BARUCH_OK .and. t /= cnode .and. t /= 0_I4P)
@@ -956,12 +1281,13 @@ contains
    p%bracket_after(b) = .false.
    endsubroutine push_bracket
 
-   subroutine handle_close_bracket(p, doc, ierr, msg)
+   subroutine handle_close_bracket(p, doc, slots, ierr, msg)
    !< A `]`. With an active bracket on top of the stack, try an inline link, then a full, collapsed or shortcut
    !< reference (cmark's `handle_close_bracket`); on a match, the link or the image; else (or with no bracket, or an
    !< inactive one) `]` is text and the top bracket is popped.
    type(inline_parser),       intent(inout) :: p           !< Parser.
    type(markdown_document),   intent(inout) :: doc         !< Document.
+   type(extension_slot),      intent(in)    :: slots(:)    !< Extensions of the options.
    integer(I4P),              intent(inout) :: ierr        !< Status.
    character(:), allocatable, intent(inout) :: msg         !< Message.
    character(:), allocatable                :: destination !< Destination, processed.
@@ -1059,15 +1385,16 @@ contains
       return
    endif
    p%pos = after
-   call add_link(p, doc, b, form, destination, title, label, ierr, msg)
+   call add_link(p, doc, slots, b, form, destination, title, label, ierr, msg)
    endsubroutine handle_close_bracket
 
-   subroutine add_link(p, doc, b, form, destination, title, label, ierr, msg)
+   subroutine add_link(p, doc, slots, b, form, destination, title, label, ierr, msg)
    !< A link or an image whose text starts after bracket `b` (the top one) and ends before the cursor's construct:
    !< the nodes after the bracket's text node become its children, the bracket's node goes, the delimiters inside are
    !< processed, the bracket is popped, and a link deactivates the `[` before it.
    type(inline_parser),       intent(inout) :: p           !< Parser.
    type(markdown_document),   intent(inout) :: doc         !< Document.
+   type(extension_slot),      intent(in)    :: slots(:)    !< Extensions of the options.
    integer(I4P),              intent(in)    :: b           !< The bracket.
    integer(I4P),              intent(in)    :: form        !< Link form.
    character(*),              intent(in)    :: destination !< Destination.
@@ -1107,7 +1434,7 @@ contains
    if (ierr == BARUCH_OK) call doc%insert_before(opener, link, stat=ierr, errmsg=msg)
    if (ierr == BARUCH_OK) call doc%unlink(opener, stat=ierr, errmsg=msg)
    if (ierr /= BARUCH_OK) return
-   call process_emphasis(p, doc, p%bracket_delim(b), ierr, msg)
+   call process_emphasis(p, doc, slots, p%bracket_delim(b), ierr, msg)
    if (ierr /= BARUCH_OK) return
    p%brackets = b - 1_I4P
    if (.not. p%bracket_image(b)) then ! links do not nest: the `[` before this one open nothing any more
@@ -1306,6 +1633,55 @@ contains
       n = next
    enddo
    endsubroutine merge_texts
+
+   subroutine contract(slots, s, hook, byte, why, ierr, msg)
+   !< Report a hook contract violation (at a byte of the source; 0: before the blocks are parsed).
+   type(extension_slot),      intent(in)  :: slots(:) !< Extensions of the options.
+   integer(I4P),              intent(in)  :: s        !< Slot of the extension.
+   character(*),              intent(in)  :: hook     !< Hook.
+   integer(I4P),              intent(in)  :: byte     !< Byte of the source, 0 for none.
+   character(*),              intent(in)  :: why      !< What broke the contract.
+   integer(I4P),              intent(out) :: ierr     !< Status.
+   character(:), allocatable, intent(out) :: msg      !< Message.
+
+   ierr = BARUCH_ERR_CONTRACT
+   msg = 'markdown_options%parse: extension "'//slots(s)%ext%name()//'", '//hook//at_byte(byte)// &
+         ', broke the hook contract: '//why
+   endsubroutine contract
+
+   function hook_message(slots, s, hook, byte, why) result(msg)
+   !< Return the message of a hook that failed: the hook's own, prefixed by where.
+   type(extension_slot),      intent(in) :: slots(:) !< Extensions of the options.
+   integer(I4P),              intent(in) :: s        !< Slot of the extension.
+   character(*),              intent(in) :: hook     !< Hook.
+   integer(I4P),              intent(in) :: byte     !< Byte of the source.
+   character(:), allocatable, intent(in) :: why      !< The hook's message (may be unallocated).
+   character(:), allocatable             :: msg      !< Message.
+
+   msg = 'markdown_options%parse: extension "'//slots(s)%ext%name()//'", '//hook//at_byte(byte)//' failed'
+   if (allocated(why)) then
+      if (len(why) > 0) msg = msg//': '//why
+   endif
+   endfunction hook_message
+
+   pure function at_byte(byte) result(s)
+   !< Return " at byte N", or nothing for 0.
+   integer(I4P), intent(in)  :: byte !< Byte.
+   character(:), allocatable :: s    !< Text.
+
+   s = ''
+   if (byte > 0_I4P) s = ' at byte '//istr(byte)
+   endfunction at_byte
+
+   pure function istr(i) result(s)
+   !< Return an integer as text.
+   integer(I4P), intent(in)  :: i   !< Integer.
+   character(:), allocatable :: s   !< Text.
+   character(24)             :: buf !< Buffer.
+
+   write(buf, '(I0)') i
+   s = trim(buf)
+   endfunction istr
 
    pure subroutine grow(a)
    !< Double an integer array, its values kept.

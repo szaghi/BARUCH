@@ -10,7 +10,8 @@ module baruch_options
 !< `parse` reads the document's source (loaded by `markdown_document%load` or `load_file`) into its tree: the tree is
 !< reset to its root, the enabled extensions register their kinds in the document, the block parser runs
 !< (`baruch_blocks`: the CommonMark block structure, the extensions' block hooks tried before the core's starts), then
-!< the inline parser over every paragraph and heading (`baruch_inlines`).
+!< the inline parser over every paragraph and heading (`baruch_inlines`, the extensions' inline hooks with it), then
+!< the extensions' `post_process` hooks.
 !<
 !< The options also read a parsed tree back, because what an extension's node looks like from outside is its
 !< extension's to say: `render_html` (`baruch_html`: the HTML, a fragment or a standalone page, into a `character`, a
@@ -54,6 +55,7 @@ type :: markdown_options
       procedure, pass(self), private :: render_html_string    !< Render as HTML into a `string`.
       procedure, pass(self), private :: render_html_unit      !< Render as HTML into an open unit.
       procedure, pass(self), private :: find      !< Return the slot of an extension by name, 0 if none.
+      procedure, pass(self), private :: post_process !< Call the enabled extensions' post-process hooks.
       procedure, pass(self), private :: set_state !< Enable or disable an extension by name.
 endtype markdown_options
 
@@ -193,7 +195,8 @@ contains
 
    subroutine parse(self, doc, stat, errmsg)
    !< Parse a document's source into its tree, with the enabled extensions: the tree is reset to its root (the source
-   !< and its lines kept), the extensions' kinds registered, the blocks parsed, then their inline content. Parsing
+   !< and its lines kept), the extensions' kinds registered, the blocks parsed, then their inline content, then the
+   !< extensions' `post_process` hooks called (the tree compacted after them if they unlinked nodes). Parsing
    !< never fails on the text: a nonzero `stat` comes from an extension (a hook failing, or breaking the hook contract:
    !< `BARUCH_ERR_CONTRACT`) or from memory, and the tree then holds what was parsed before it.
    class(markdown_options),   intent(in)            :: self   !< Options.
@@ -213,13 +216,45 @@ contains
          call parse_blocks(doc, empty, stat=ierr, errmsg=msg)
       endif
    endif
-   if (ierr == BARUCH_OK) call parse_inlines(doc, stat=ierr, errmsg=msg)
+   if (ierr == BARUCH_OK) then
+      if (self%slots_used > 0_I4P) then
+         call parse_inlines(doc, self%slots_(1:self%slots_used), stat=ierr, errmsg=msg)
+      else
+         call parse_inlines(doc, empty, stat=ierr, errmsg=msg)
+      endif
+   endif
+   if (ierr == BARUCH_OK) call self%post_process(doc, ierr, msg)
    if (ierr /= BARUCH_OK) then
       call status_error(ierr, msg, stat, errmsg)
    else
       call status_ok(stat, errmsg)
    endif
    endsubroutine parse
+
+   subroutine post_process(self, doc, ierr, msg)
+   !< Call the enabled extensions' `post_process` hooks on a parsed document, in registration order; compact the tree
+   !< after them if they left tombstones (a parse leaves none).
+   class(markdown_options),   intent(in)    :: self !< Options.
+   type(markdown_document),   intent(inout) :: doc  !< Document, parsed.
+   integer(I4P),              intent(inout) :: ierr !< Status.
+   character(:), allocatable, intent(inout) :: msg  !< Message.
+   integer(I4P)                             :: s    !< Slot.
+   logical                                  :: called !< A hook was called.
+
+   called = .false.
+   do s=1, self%slots_used
+      if (.not. self%slots_(s)%enabled) cycle
+      msg = ''
+      call self%slots_(s)%ext%post_process(doc, ierr, msg)
+      called = .true.
+      if (ierr /= BARUCH_OK) then
+         if (len(msg) > 0) msg = ': '//msg
+         msg = 'markdown_options%parse: extension "'//self%slots_(s)%ext%name()//'", post_process failed'//msg
+         return
+      endif
+   enddo
+   if (called .and. doc%nodes_number() < doc%last_node()) call doc%compact(stat=ierr, errmsg=msg)
+   endsubroutine post_process
 
    subroutine render_html_character(self, doc, html, standalone, title, stat, errmsg)
    !< Render a document as HTML, with the enabled extensions: an HTML fragment (default) or, with `standalone =

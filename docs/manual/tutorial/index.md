@@ -12,7 +12,7 @@ makes it possible; the ones not linked below are not written yet.
 | Chapter | What it shows | Plan step |
 |---|---|---|
 | [1. A document by hand](./01-document) | build a tree node by node, read it back through the accessors, edit and compact it | 1.1 |
-| [2. Write an extension](./02-extension) | a `%%` block extension through the public interface, its block hooks, the contract | 1.3 (inline hooks: 2.5) |
+| [2. Write an extension](./02-extension) | a `%%` block and a `%name%` inline through the public interface, a `==` delimiter extension, the contract | 1.3, 2.5 |
 | [3. Read a document](./03-read) | parse a file, inspect the tree: what each block means and how it was written | 1.5 |
 | [4. Render HTML](./04-render) | an HTML fragment and a standalone page; the walk's events | 1.6 |
 | [5. Inline content](./05-inlines) | code spans, autolinks, raw HTML, references, line breaks, emphasis, links and images in the tree | 2.3, 2.4 |

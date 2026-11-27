@@ -11,8 +11,12 @@ character(:), allocatable                :: text     !< The block's text.
 integer                                  :: i        !< Counter.
 
 markdown = ''
-handled = doc%node_kind(node) == NODE_PERCENT
+handled = doc%node_kind(node) == NODE_PERCENT .or. doc%node_kind(node) == NODE_PERCENT_NAME
 if (.not. (handled .and. entering)) return
+if (doc%node_kind(node) == NODE_PERCENT_NAME) then
+   markdown = '%'//doc%literal(node)//'%'
+   return
+endif
 text = doc%literal(node)
 markdown = '%%'
 do i=1, len(text)

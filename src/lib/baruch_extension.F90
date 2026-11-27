@@ -11,8 +11,8 @@ module baruch_extension
 !<   finished, with its content lines);
 !< - content rules: `block_content` (holds blocks, takes raw lines, or neither), `can_contain` (which children a
 !<   container of the extension holds), `contains_inlines` (whether a block's content is inline-parsed);
-!< - inlines: `inline_triggers` and `inline_start` (an inline construct opened by a character), `delimiter_chars` and
-!<   `delimiter_match` (runs of a character taking part in the delimiter algorithm, as `~~` does);
+!< - inlines: `inline_triggers` and `inline_start` (an inline construct opened by a byte), `delimiter_chars`,
+!<   `delimiter_run` and `delimiter_match` (runs of a character taking part in the delimiter algorithm, as `~~` does);
 !< - post-processing: `post_process`, once the whole document is parsed;
 !< - output: `write_html`, `write_markdown` and `walk_event`.
 !<
@@ -22,8 +22,8 @@ module baruch_extension
 !< the same time.
 !<
 !< The block hooks are called by the block parser (`baruch_blocks`), `write_html` by the HTML renderer (`baruch_html`)
-!< and `walk_event` by the walk (`baruch_walk`); the inline hooks and `post_process` by the inline parser (step 2.5),
-!< `write_markdown` by the writer (step 3.2).
+!< and `walk_event` by the walk (`baruch_walk`); `contains_inlines` and the inline hooks by the inline parser
+!< (`baruch_inlines`), `post_process` by `markdown_options%parse` after it; `write_markdown` by the writer (step 3.2).
 !<
 !< `extension_slot` (a polymorphic extension and its enabled flag) is how `markdown_options` holds the extensions; it is
 !< not exported by `baruch`.
@@ -64,6 +64,7 @@ type, abstract :: markdown_extension
       procedure,                           pass(self)           :: inline_triggers  !< Characters opening inlines.
       procedure,                           pass(self)           :: inline_start     !< Parse an inline, or not mine.
       procedure,                           pass(self)           :: delimiter_chars  !< Its delimiter characters.
+      procedure,                           pass(self)           :: delimiter_run    !< Can a run open, close.
       procedure,                           pass(self)           :: delimiter_match  !< Match two delimiter runs.
       ! post-processing
       procedure,                           pass(self)           :: post_process     !< Edit the parsed document.
@@ -236,8 +237,10 @@ contains
    endfunction can_contain
 
    function contains_inlines(self, kind) result(inlines)
-   !< Return true if the content of a block of one of the extension's kinds is inline content (parsed for emphasis,
-   !< links...: plan phase 2). Default: false.
+   !< Return true if the content of a block of one of the extension's kinds is inline content: the inline parser then
+   !< reads the block as it reads a paragraph, when the block holds one text node and nothing else (`block_close` makes
+   !< it: `STRING_LITERAL` the content, lines joined by LF; its span starting at the content's first source byte, each
+   !< later line ending where its source line ends). Default: false.
    class(markdown_extension), intent(in) :: self    !< Extension.
    integer(I4P),              intent(in) :: kind    !< One of the extension's kinds.
    logical                               :: inlines !< Result.
@@ -247,24 +250,36 @@ contains
    endassociate
    endfunction contains_inlines
 
-   ! inlines (called from plan step 2.5)
+   ! inlines
    function inline_triggers(self) result(chars)
-   !< Return the characters that can open one of the extension's inline constructs (`inline_start` is called only at
-   !< them). Default: none.
+   !< Return the bytes that hand an inline position to the extension: the inline parser calls `inline_start` at each
+   !< of them, in the subject of every block it parses. Each byte must be a graphic ASCII character (`!` to `~`) that
+   !< is not a core trigger (`` ` `` `\` `&` `<` `*` `_` `[` `]` `!`: the core's stay the core's); another byte is a
+   !< contract violation, reported when the inline phase starts. Default: none.
    class(markdown_extension), intent(in) :: self  !< Extension.
-   character(:), allocatable             :: chars !< Trigger characters.
+   character(:), allocatable             :: chars !< Trigger bytes.
 
    chars = ''
    endfunction inline_triggers
 
    subroutine inline_start(self, doc, text, offset, node, consumed, stat, errmsg)
-   !< Parse an inline construct of the extension at `text(offset:)`, where a trigger character stands: create a
-   !< detached inline node, set `node` to it and `consumed` (at least 1) to the bytes it takes; or leave `node = 0`
-   !< (not mine: the character is text, or another extension's). Default: not mine.
+   !< Parse an inline construct of the extension at `text(offset:)`, where one of its trigger bytes stands, or leave
+   !< `node = 0` (not mine: the byte is offered to the next extension, then read as text).
+   !<
+   !< `text` is the subject the inline parser reads, the content of the block being parsed: its lines without their
+   !< leading white space, joined by LF; `text(:offset-1)` is already parsed (the hook may look at it, as a construct
+   !< allowed only at a word start does). To claim the position the hook creates an inline node of one of its kinds
+   !< (`doc%new_node`), detached, and sets `consumed` to the bytes of `text(offset:)` it takes. The parser links the
+   !< node after what precedes it, sets its span to the source bytes of `text(offset:offset+consumed-1)` and goes on
+   !< after them. The node may have children the hook built (their spans are the hook's: the subject's offsets map to
+   !< the source only through the parser); a leaf with its content as `STRING_LITERAL` is the usual case.
+   !<
+   !< Contract (`stat = BARUCH_ERR_CONTRACT`, the parse stops): `node` is a node created by this call, detached, of an
+   !< inline kind of an extension; `1 <= consumed <= len(text) - offset + 1` (every claim makes progress).
    class(markdown_extension), intent(in)    :: self     !< Extension.
    type(markdown_document),   intent(inout) :: doc      !< Document.
-   character(*),              intent(in)    :: text     !< Inline content being parsed.
-   integer(I4P),              intent(in)    :: offset   !< Position of the trigger character.
+   character(*),              intent(in)    :: text     !< The subject: the block's inline content.
+   integer(I4P),              intent(in)    :: offset   !< Position of the trigger byte.
    integer(I4P),              intent(out)   :: node     !< New inline node, 0: not mine.
    integer(I4P),              intent(out)   :: consumed !< Bytes of `text(offset:)` it takes.
    integer(I4P),              intent(inout) :: stat     !< Status: left 0 unless the hook fails.
@@ -278,39 +293,84 @@ contains
 
    function delimiter_chars(self) result(chars)
    !< Return the characters whose runs take part in the delimiter algorithm on the extension's behalf (`~` for
-   !< strikethrough): the inline parser pushes such runs on the delimiter stack and asks `delimiter_match`. Default:
-   !< none.
+   !< strikethrough): a run of one is read as emphasis runs are (its flanking computed), `delimiter_run` says whether
+   !< it can open or close, and the core's `process_emphasis` asks `delimiter_match` to pair its closers with openers.
+   !< The rules are `inline_triggers`'s (graphic ASCII, no core trigger); one character belongs to one extension (two
+   !< enabled extensions declaring it: `BARUCH_ERR_ARGUMENT`). At a byte that is both, `inline_start` is tried first.
+   !< Default: none.
    class(markdown_extension), intent(in) :: self  !< Extension.
    character(:), allocatable             :: chars !< Delimiter characters.
 
    chars = ''
    endfunction delimiter_chars
 
-   subroutine delimiter_match(self, doc, delimiter, opener_length, closer_length, used, node, stat, errmsg)
-   !< Match a closer run of one of the extension's delimiter characters with an opener run of the same character:
-   !< set `used` to the characters taken from each run (0: no match) and `node` to a detached inline node the content
-   !< between them is moved into. Default: no match.
-   class(markdown_extension), intent(in)    :: self          !< Extension.
-   type(markdown_document),   intent(inout) :: doc           !< Document.
-   character,                 intent(in)    :: delimiter     !< Delimiter character.
-   integer(I4P),              intent(in)    :: opener_length !< Characters left in the opener run.
-   integer(I4P),              intent(in)    :: closer_length !< Characters left in the closer run.
-   integer(I4P),              intent(out)   :: used          !< Characters taken from each run, 0: no match.
-   integer(I4P),              intent(out)   :: node          !< New inline node wrapping the content, 0 if none.
-   integer(I4P),              intent(inout) :: stat          !< Status: left 0 unless the hook fails.
-   character(:), allocatable, intent(inout) :: errmsg        !< Message, set with a nonzero `stat`.
+   subroutine delimiter_run(self, doc, text, first, length, left_flanking, right_flanking, before_punct, after_punct, &
+                            can_open, can_close)
+   !< Say whether a run of one of the extension's delimiter characters, `text(first:first+length-1)`, can open and
+   !< whether it can close; a run that can do neither is text. The parser gives the run's flanking (CommonMark 6.2:
+   !< Unicode White_Space and punctuation around it, the start and the end of the subject as white space) and whether
+   !< punctuation stands before and after it. Default: the rule of `*`, `can_open = left_flanking`, `can_close =
+   !< right_flanking`.
+   class(markdown_extension), intent(in)  :: self           !< Extension.
+   type(markdown_document),   intent(in)  :: doc            !< Document.
+   character(*),              intent(in)  :: text           !< The subject.
+   integer(I4P),              intent(in)  :: first          !< First byte of the run.
+   integer(I4P),              intent(in)  :: length         !< Its characters.
+   logical,                   intent(in)  :: left_flanking  !< The run is left-flanking.
+   logical,                   intent(in)  :: right_flanking !< The run is right-flanking.
+   logical,                   intent(in)  :: before_punct   !< Punctuation before it.
+   logical,                   intent(in)  :: after_punct    !< Punctuation after it.
+   logical,                   intent(out) :: can_open       !< It can open.
+   logical,                   intent(out) :: can_close      !< It can close.
+
+   can_open = left_flanking
+   can_close = right_flanking
+   associate(unused => [doc%root(), len(text, kind=I4P), first, length, merge(1_I4P, 0_I4P, before_punct), &
+                        merge(1_I4P, 0_I4P, after_punct)])
+   endassociate
+   endsubroutine delimiter_run
+
+   subroutine delimiter_match(self, doc, delimiter, opener_length, closer_length, opener_original, closer_original, &
+                              opener_can_close, closer_can_open, used, node, stat, errmsg)
+   !< Pair a closer run of one of the extension's delimiter characters with an opener run of the same character, the
+   !< nearest one below it not refused yet: set `used` to the characters taken from each run (0: no match, the search
+   !< goes on below) and, on a match, `node` to a new detached inline node of one of the extension's kinds. The parser
+   !< moves the nodes between the two runs into it, sets its span (the used characters included), links it, drops the
+   !< delimiters between, and tries the closer again while characters are left in it, as for emphasis. The hook sees
+   !< what the core's emphasis rules see: the characters left in each run, their lengths as read, and whether the
+   !< opener can also close and the closer also open. A closer that finds no opener bounds the search of the later
+   !< closers of the same character and the same `closer_can_open` (the matching stays linear).
+   !<
+   !< Contract (`stat = BARUCH_ERR_CONTRACT`): `0 <= used <= min(opener_length, closer_length)`; with `used > 0`,
+   !< `node` is a node created by this call, detached, childless, of an inline kind of an extension; with `used = 0`,
+   !< `node = 0`. Default: no match.
+   class(markdown_extension), intent(in)    :: self             !< Extension.
+   type(markdown_document),   intent(inout) :: doc              !< Document.
+   character,                 intent(in)    :: delimiter        !< Delimiter character.
+   integer(I4P),              intent(in)    :: opener_length    !< Characters left in the opener run.
+   integer(I4P),              intent(in)    :: closer_length    !< Characters left in the closer run.
+   integer(I4P),              intent(in)    :: opener_original  !< Characters of the opener run as read.
+   integer(I4P),              intent(in)    :: closer_original  !< Characters of the closer run as read.
+   logical,                   intent(in)    :: opener_can_close !< The opener run can also close.
+   logical,                   intent(in)    :: closer_can_open  !< The closer run can also open.
+   integer(I4P),              intent(out)   :: used             !< Characters taken from each run, 0: no match.
+   integer(I4P),              intent(out)   :: node             !< New inline node wrapping the content, 0 if none.
+   integer(I4P),              intent(inout) :: stat             !< Status: left 0 unless the hook fails.
+   character(:), allocatable, intent(inout) :: errmsg           !< Message, set with a nonzero `stat`.
 
    used = 0_I4P
    node = 0_I4P
-   associate(unused => [doc%root(), iachar(delimiter, kind=I4P), opener_length, closer_length, stat, &
-                        merge(1_I4P, 0_I4P, allocated(errmsg))])
+   associate(unused => [doc%root(), iachar(delimiter, kind=I4P), opener_length, closer_length, opener_original, &
+                        closer_original, merge(1_I4P, 0_I4P, opener_can_close), merge(1_I4P, 0_I4P, closer_can_open), &
+                        stat, merge(1_I4P, 0_I4P, allocated(errmsg))])
    endassociate
    endsubroutine delimiter_match
 
-   ! post-processing (called from plan step 2.5)
+   ! post-processing
    subroutine post_process(self, doc, stat, errmsg)
-   !< Edit the document once it is parsed, blocks and inlines (a task list item's checkbox, footnote numbering).
-   !< Default: nothing.
+   !< Edit the document once it is parsed, blocks and inlines (a task list item's checkbox, footnote numbering, an
+   !< autolink found in text). Called by `markdown_options%parse` after the inline phase, once per parse, the enabled
+   !< extensions in registration order; the tree is compacted after them when they unlinked nodes. Default: nothing.
    class(markdown_extension), intent(in)    :: self   !< Extension.
    type(markdown_document),   intent(inout) :: doc    !< Document.
    integer(I4P),              intent(inout) :: stat   !< Status: left 0 unless the hook fails.
