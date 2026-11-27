@@ -1,7 +1,7 @@
 [project]
 name       = BARUCH
 version    = VERSION
-summary    = Bidirectional AST Reader and Unparser for CommonMark, Hookable: a pure Fortran Markdown parser and emitter, with opt-in MyST/VitePress extensions
+summary    = Bidirectional AST Reader and Unparser for CommonMark, Hookable: a pure Fortran Markdown parser and emitter, with opt-in GFM and VitePress extensions
 repository = https://github.com/szaghi/BARUCH
 website    = https://szaghi.github.io/BARUCH
 email      = stefano.zaghi@gmail.com
@@ -14,6 +14,7 @@ authors    = Stefano Zaghi
 toolchain     = linux-gnu
 matrix        = linux-gnu linux-nvhpc linux-oneapi
 fpm           = true
+docs_examples = docs/examples
 
 # the one-line installer (scripts/install.sh, rendered by fobis scaffold): the static library of each vendor
 [installer]
@@ -114,9 +115,14 @@ template  = template-tests template-nvf template-debug
 help      = Tests, ifx, optimised (fortran-toolchains matrix: family intel)
 template  = template-tests template-intel-release template-intel
 
+# ifx, all checks on but bounds: the debug profile's flags with -check all,nobounds in place of -check all. ifx
+# 2025.3 and 2026.2 report a false out-of-bounds on len(self%raw(a:b)) through a class() dummy (StringiFor's
+# start_with; reproducer notes/ifx-check-bounds-len-substring-class.f90, kept locally; gfortran -fcheck=all accepts
+# it). Back to template-debug when Intel fixes the defect (plan szaghi/BARUCH#1, D2)
 [tests-intel-debug]
-help      = Tests, ifx, all checks on
-template  = template-tests template-intel template-debug
+help      = Tests, ifx, all checks on but bounds (an ifx false positive, see the comment above)
+template  = template-tests template-intel
+cflags    = -c -O0 -g -check all,nobounds -traceback -warn all $STD_INT
 
 # ── templates: left wins when a mode lists several, so the role template (lib, tests) comes first ──
 [template-base]

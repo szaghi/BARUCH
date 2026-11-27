@@ -7,7 +7,7 @@ hero:
   tagline: A Markdown parser and emitter in pure Fortran
   actions:
     - theme: brand
-      text: Guide
+      text: Start here
       link: /guide/
     - theme: alt
       text: API Reference
@@ -22,5 +22,5 @@ features:
   - title: CommonMark, checked
     details: The reader follows CommonMark 0.31.2 and is tested against the examples of its specification.
   - title: Opt-in extensions
-    details: MyST and VitePress syntax (directives, roles, math, custom containers, front matter) as hooks; the core stays CommonMark.
+    details: GitHub Flavored Markdown and the VitePress syntax (custom containers, math, front matter, snippet imports), built through one public extension interface; the core stays CommonMark.
 ---

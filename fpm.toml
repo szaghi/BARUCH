@@ -5,7 +5,7 @@ author = "Stefano Zaghi"
 maintainer = "stefano.zaghi@gmail.com"
 copyright = "Copyright 2026 Stefano Zaghi"
 homepage = "https://github.com/szaghi/BARUCH"
-description = "Bidirectional AST Reader and Unparser for CommonMark, Hookable: a pure Fortran Markdown parser and emitter, with opt-in MyST/VitePress extensions"
+description = "Bidirectional AST Reader and Unparser for CommonMark, Hookable: a pure Fortran Markdown parser and emitter, with opt-in GFM and VitePress extensions"
 
 [library]
 source-dir = "src/lib"

@@ -3,17 +3,102 @@
 BARUCH (**B**idirectional **A**ST **R**eader and **U**nparser for **C**ommonMark, **H**ookable) reads Markdown into a
 document tree and writes a tree back to Markdown, in pure Fortran.
 
-- **Reader**: CommonMark 0.31.2. The block structure is parsed first, the inline content of each block second, as the
-  specification describes it.
-- **Writer**: the tree back to CommonMark. The round trip is semantic: re-reading the output gives the same tree,
-  not necessarily the same bytes (a `*` emphasis may come back as `_`, a setext heading as an ATX one).
-- **Streaming writer**: Markdown emitted block by block, with no tree, for reports a program writes while it runs.
-- **Extensions**: MyST and VitePress syntax as opt-in hooks. With every extension off, BARUCH is a CommonMark
-  processor.
+::: warning Status
+The repository holds the build, the tests, the CI and this documentation; the library exports nothing yet. This page
+states the design the code is being written to: everything below is **planned** unless it says otherwise. The plan,
+step by step, is [szaghi/BARUCH#1](https://github.com/szaghi/BARUCH/issues/1).
+:::
 
-It depends on [StringiFor](https://github.com/szaghi/StringiFor) (text, UTF-8, Unicode classes) and
-[PENF](https://github.com/szaghi/PENF) (kinds).
+## What it is for
 
-## Status
+- **Reader** (planned): CommonMark 0.31.2, checked against the 652 examples of the specification. The block structure
+  is parsed first, the inline content of each block second, as the specification describes it.
+- **HTML renderer** (planned): an HTML fragment by default (no `<html>` wrapper, no external CSS or JavaScript, ready to
+  embed in a page), a standalone document on option.
+- **Tree writer** (planned): the tree back to Markdown. The round trip is semantic: re-reading what BARUCH writes gives
+  the same tree, not necessarily the same bytes.
+- **Streaming writer** (planned): Markdown written block by block, with no tree, for the reports a program writes
+  while it runs.
+- **Extensions** (planned): the GitHub Flavored Markdown group, then the VitePress syntax, all built through one public
+  extension interface. With every extension off, BARUCH is a CommonMark processor.
 
-The repository is being seeded: the build, the tests and the CI are in place, the parser is not written yet.
+The first clients are FIGURE (BARUCH replaces md4c, its last C Markdown
+dependency), ADAM (run reports) and foresight (reads Markdown into its HTML
+pages and writes it). Each client wires BARUCH in its own repository.
+
+## The design
+
+Settled before the first line of the parser; the steps of the plan implement it in this order.
+
+### Pure Fortran
+
+No C binding. External tools (cmark, md4c) serve only as local investigation aids, never in the CI.
+
+### Reader before writer
+
+Escaping is defined by the parser: the writer escapes exactly what the reader would otherwise read as syntax.
+
+### Semantic round trip
+
+`parse(write(parse(x))) == parse(x)`, not byte equality. The reader records the source style of each construct:
+
+| Construct | Style recorded |
+|---|---|
+| Emphasis, strong emphasis | `*` or `_` |
+| Bullet list | `-`, `+` or `*` |
+| Ordered list | `.` or `)` |
+| Heading | ATX or setext; the closing `#`s of an ATX heading |
+| Fenced code | the fence character and length |
+| Thematic break | `-`, `*` or `_` |
+| Link | inline, full, collapsed or shortcut reference, and its label |
+
+Link reference definitions are nodes, in place. The writer reuses the recorded style and is canonical where there is
+none; the `canonical` option ignores it. Tree equality ignores byte spans and style.
+
+### A flat tree
+
+One document holds every node in flat arrays; a node is an integer index:
+
+| Array | Holds |
+|---|---|
+| kind | the node's kind (paragraph, heading, emphasis, ... or an extension's registered kind) |
+| parent, first and last child, previous and next sibling | the links of the tree |
+| span | the node's first and last byte in the source |
+| integers | the kind's own fields (heading level, list start, fence length, ...) |
+
+Processed text lives in one string pool. No polymorphism and no recursion in the tree: the parser and the walk are
+iterative, so nesting depth is bounded by memory, not by the stack. Integer handles stay valid while the document is
+edited (FIGURE holds them): a deleted node is a tombstone until an explicit compaction. An extension adds a
+registered kind number plus named attributes.
+
+### The reader's interface
+
+The tree, plus a walk that emits enter/leave block, enter/leave span and text events with byte offsets (md4c's
+callback shape). There is no streaming parser.
+
+### One extension interface
+
+An abstract type with type-bound hooks, each with a "not mine" default: block start, block continuation, content
+rules, inline trigger and delimiter participation, post-processing, output as HTML, as Markdown (mandatory) and as
+events. Every extension, BARUCH's own included, goes through it; the core is CommonMark only. Extensions are compiled
+in and enabled per parse; a client can register its own. The block-start hook sees the lines of the open paragraph
+(a GFM table needs them).
+
+| Group | Extensions |
+|---|---|
+| GitHub Flavored Markdown | tables, strikethrough, task lists, extended autolinks, alerts, footnotes |
+| VitePress | custom containers, math, front matter, heading anchors, `{.class}` attributes, `<<<` snippet imports and `<!--@include:-->` (kept as nodes, never resolved), `[[toc]]`, fence titles |
+| md4c dialect | underline (FIGURE only, off by default, not CommonMark) |
+
+MyST is out of scope until a client needs it.
+
+### Every input is a document
+
+Parsing never fails. See [Conventions](/guide/conventions) for the input rules and the error policy.
+
+### Dependencies
+
+[StringiFor](https://github.com/szaghi/StringiFor) (text, UTF-8, Unicode classes, encodings) and
+[PENF](https://github.com/szaghi/PENF) (kinds), with FACE and BeFoR64, which StringiFor uses. The HTML5 entity table,
+percent-encoding and HTML escaping are BARUCH's own.
+

@@ -1,6 +1,6 @@
 ---
 project: BARUCH
-summary: Bidirectional AST Reader and Unparser for CommonMark, Hookable: a pure Fortran Markdown parser and emitter, with opt-in MyST/VitePress extensions
+summary: Bidirectional AST Reader and Unparser for CommonMark, Hookable: a pure Fortran Markdown parser and emitter, with opt-in GFM and VitePress extensions
 project_url: https://szaghi.github.io/BARUCH
 author: Stefano Zaghi
 email: stefano.zaghi@gmail.com
@@ -14,4 +14,4 @@ coloured_edges: true
 graph_maxdepth: 6
 ---
 
-Bidirectional AST Reader and Unparser for CommonMark, Hookable: a pure Fortran Markdown parser and emitter, with opt-in MyST/VitePress extensions
+Bidirectional AST Reader and Unparser for CommonMark, Hookable: a pure Fortran Markdown parser and emitter, with opt-in GFM and VitePress extensions

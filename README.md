@@ -12,8 +12,9 @@ BARUCH reads Markdown into a document tree and writes a tree back to Markdown:
 - **Writer**: the tree back to CommonMark. The round trip is semantic: re-reading what BARUCH writes gives the same
   tree, though not necessarily the same bytes.
 - **Streaming writer**: Markdown emitted block by block, for reports produced while a program runs, with no tree.
-- **Hookable**: MyST and VitePress syntax (directives, roles, targets, math, custom containers, front matter) as
-  opt-in extensions; the CommonMark core does not change when they are off.
+- **Hookable**: GitHub's extensions (tables, strikethrough, task lists, autolinks, alerts, footnotes) and VitePress
+  syntax (custom containers, math, front matter, anchors, attributes, snippet imports) as opt-in extensions, all
+  through one public interface; the CommonMark core does not change when they are off.
 
 Text is handled with [StringiFor](https://github.com/szaghi/StringiFor) and kinds come from
 [PENF](https://github.com/szaghi/PENF), both fetched by `fobis fetch`.
