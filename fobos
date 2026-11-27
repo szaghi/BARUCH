@@ -1,0 +1,193 @@
+[project]
+name       = BARUCH
+version    = VERSION
+summary    = Bidirectional AST Reader and Unparser for CommonMark, Hookable: a pure Fortran Markdown parser and emitter, with opt-in MyST/VitePress extensions
+repository = https://github.com/szaghi/BARUCH
+website    = https://szaghi.github.io/BARUCH
+email      = stefano.zaghi@gmail.com
+year       = 2026
+authors    = Stefano Zaghi
+
+# fobis scaffold: the CI runs in the fortran-toolchains images; the matrix builds tests-$TOOLCHAIN_FAMILY
+# (gnu, nvf, intel) on every Linux vendor and runs scripts/run_tests.sh
+[scaffold]
+toolchain     = linux-gnu
+matrix        = linux-gnu linux-nvhpc linux-oneapi
+fpm           = true
+
+# the one-line installer (scripts/install.sh, rendered by fobis scaffold): the static library of each vendor
+[installer]
+mode_gnu    = static-gnu
+mode_intel  = static-intel
+mode_nvidia = static-nvf
+
+# fobis ecosystem check: what proves this project still works
+[ecosystem]
+check = fobis fetch
+        fobis build --mode tests-gnu
+        bash scripts/run_tests.sh
+
+# fetched as sources into src/third_party (pinned in src/third_party/fobos.lock), compiled with BARUCH: StringiFor and
+# what it needs (PENF, FACE, BeFoR64), listed one by one as FoXy does
+[dependencies]
+deps_dir   = src/third_party
+BeFoR64    = https://github.com/szaghi/BeFoR64
+FACE       = https://github.com/szaghi/FACE
+PENF       = https://github.com/szaghi/PENF
+StringiFor = https://github.com/szaghi/StringiFor
+
+[modes]
+# the first mode is the default (fobis build): the static library any gfortran builds
+modes = static-gnu shared-gnu
+        static-nvf shared-nvf
+        static-intel shared-intel
+        tests-gnu tests-gnu-debug tests-gnu-coverage
+        tests-nvf tests-nvf-debug
+        tests-intel tests-intel-debug
+
+[common-variables]
+$STD_GNU = -std=f2018
+$STD_INT = -standard-semantics -std18
+# the dependencies' own tests, docs and scripts are not part of the build
+$EXDIRS  = BeFoR64/src/tests/ FACE/src/tests/ PENF/src/tests/ StringiFor/src/tests/
+           BeFoR64/docs/ FACE/docs/ PENF/docs/ StringiFor/docs/
+           BeFoR64/scripts/ FACE/scripts/ PENF/scripts/ StringiFor/scripts/
+
+# ── library modes ────────────────────────────────────────────────────────────
+[static-gnu]
+help      = Static library, gfortran, optimised
+template  = template-lib-static template-gnu template-release
+build_dir = lib/gnu/static/
+
+[shared-gnu]
+help      = Shared library, gfortran, optimised
+template  = template-lib-shared template-gnu template-release
+cflags    = -c -fPIC $STD_GNU
+build_dir = lib/gnu/shared/
+
+[static-nvf]
+help      = Static library, nvfortran, optimised
+template  = template-lib-static template-nvf template-release
+build_dir = lib/nvf/static/
+
+[shared-nvf]
+help      = Shared library, nvfortran, optimised
+template  = template-lib-shared template-nvf template-release
+cflags    = -c -fPIC
+build_dir = lib/nvf/shared/
+
+[static-intel]
+help      = Static library, ifx, optimised
+template  = template-lib-static template-intel-release template-intel
+build_dir = lib/intel/static/
+
+[shared-intel]
+help      = Shared library, ifx, optimised
+template  = template-lib-shared template-intel
+cflags    = -c -fPIC -O3 $STD_INT
+build_dir = lib/intel/shared/
+
+# ── test modes: every program of src/tests into exe/, run by scripts/run_tests.sh ──
+[tests-gnu]
+help      = Tests, gfortran, optimised (fortran-toolchains matrix: family gnu)
+template  = template-tests template-gnu template-release
+
+[tests-gnu-debug]
+help      = Tests, gfortran, all checks on
+template  = template-tests template-gnu template-debug
+
+[tests-gnu-coverage]
+help      = Tests, gfortran, coverage instrumentation (rule makecoverage)
+template  = template-tests template-gnu
+build_profile = coverage
+
+[tests-nvf]
+help      = Tests, nvfortran, optimised (fortran-toolchains matrix: family nvf)
+template  = template-tests template-nvf template-release
+
+[tests-nvf-debug]
+help      = Tests, nvfortran, all checks on
+template  = template-tests template-nvf template-debug
+
+[tests-intel]
+help      = Tests, ifx, optimised (fortran-toolchains matrix: family intel)
+template  = template-tests template-intel-release template-intel
+
+[tests-intel-debug]
+help      = Tests, ifx, all checks on
+template  = template-tests template-intel template-debug
+
+# ── templates: left wins when a mode lists several, so the role template (lib, tests) comes first ──
+[template-base]
+src             = src/lib/ src/third_party/
+exclude_dirs    = $EXDIRS
+obj_dir         = obj/
+mod_dir         = mod/
+cflags_heritage = True
+colors          = True
+jobs            = 8
+
+[template-gnu]
+template = template-base
+compiler = gnu
+cflags   = -c $STD_GNU
+
+[template-nvf]
+template = template-base
+compiler = nvfortran
+cflags   = -c
+
+[template-intel]
+template = template-base
+compiler = intel_nextgen
+cflags   = -c $STD_INT
+
+[template-release]
+build_profile = release
+
+# ifx without the release profile: its -ipo writes IR objects that the link (FoBiS passes no -ipo to it) and a plain
+# ar archive cannot read
+[template-intel-release]
+cflags = -c -O3 $STD_INT
+
+[template-debug]
+build_profile = debug
+
+# the library holds BARUCH and the sources of its dependencies (fetched as sources): the client links one archive
+[template-lib-static]
+target    = src/lib/baruch.F90
+mklib     = static
+output    = libbaruch.a
+
+[template-lib-shared]
+target    = src/lib/baruch.F90
+mklib     = shared
+output    = libbaruch.so
+
+[template-tests]
+src       = src/lib/ src/third_party/ src/tests/
+build_dir = exe/
+
+# ── rules ────────────────────────────────────────────────────────────────────
+[rule-makecoverage]
+help   = Build the tests with coverage instrumentation and run them
+rule_1 = fobis clean --mode tests-gnu-coverage
+rule_2 = fobis build --mode tests-gnu-coverage
+rule_3 = bash scripts/run_tests.sh
+
+[rule-makecoverage-analysis]
+help   = Coverage analysis: the badge JSON in docs/public/coverage.json (what CI runs)
+rule_1 = fobis rule --ex makecoverage
+rule_2 = bash scripts/compute-coverage.sh
+
+[rule-docs-examples]
+help = Build and run the documentation examples, regenerating docs/examples/snippets and docs/examples/output
+rule = bash scripts/docs_examples.sh
+
+[rule-makedoc]
+help   = Build the documentation: formal API + VitePress
+rule_1 = cd docs && npm install --no-audit --no-fund && npm run docs:build
+
+[rule-clean]
+help = Remove build products and documentation artefacts
+rule = rm -rf exe/ lib/ obj/ mod/ docs/api/ docs/.vitepress/dist/ docs/.vitepress/cache/ docs/public/coverage.json

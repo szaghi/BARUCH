@@ -1,0 +1,31 @@
+# BARUCH
+
+**B**idirectional **A**ST **R**eader and **U**nparser for **C**ommonMark, **H**ookable: a Markdown parser and emitter
+in pure Fortran.
+
+[![CI](https://github.com/szaghi/BARUCH/actions/workflows/ci.yml/badge.svg)](https://github.com/szaghi/BARUCH/actions/workflows/ci.yml)
+[![Matrix](https://github.com/szaghi/BARUCH/actions/workflows/matrix.yml/badge.svg)](https://github.com/szaghi/BARUCH/actions/workflows/matrix.yml)
+
+BARUCH reads Markdown into a document tree and writes a tree back to Markdown:
+
+- **Reader**: CommonMark 0.31.2, block structure first and inlines second, checked against the spec's examples.
+- **Writer**: the tree back to CommonMark. The round trip is semantic: re-reading what BARUCH writes gives the same
+  tree, though not necessarily the same bytes.
+- **Streaming writer**: Markdown emitted block by block, for reports produced while a program runs, with no tree.
+- **Hookable**: MyST and VitePress syntax (directives, roles, targets, math, custom containers, front matter) as
+  opt-in extensions; the CommonMark core does not change when they are off.
+
+Text is handled with [StringiFor](https://github.com/szaghi/StringiFor) and kinds come from
+[PENF](https://github.com/szaghi/PENF), both fetched by `fobis fetch`.
+
+The repository is being seeded: the build, the tests and the CI are in place, the parser is not written yet.
+
+```bash
+fobis fetch && fobis build --mode tests-gnu && bash scripts/run_tests.sh
+```
+
+Baruch, son of Neriah, was Jeremiah's scribe: he wrote the scroll at the prophet's dictation and read it aloud
+(Jeremiah 36), the two directions of this library.
+
+Documentation: https://szaghi.github.io/BARUCH. License: your choice of GPL-3.0-or-later, BSD-2-Clause,
+BSD-3-Clause or MIT.

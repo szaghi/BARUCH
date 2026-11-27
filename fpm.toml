@@ -1,0 +1,36 @@
+name = "BARUCH"
+version = "0.0.0"
+license = "GPL-3.0-or-later OR BSD-2-Clause OR BSD-3-Clause OR MIT"
+author = "Stefano Zaghi"
+maintainer = "stefano.zaghi@gmail.com"
+copyright = "Copyright 2026 Stefano Zaghi"
+homepage = "https://github.com/szaghi/BARUCH"
+description = "Bidirectional AST Reader and Unparser for CommonMark, Hookable: a pure Fortran Markdown parser and emitter, with opt-in MyST/VitePress extensions"
+
+[library]
+source-dir = "src/lib"
+
+[build]
+auto-executables = false
+auto-tests = false
+auto-examples = false
+
+[fortran]
+implicit-typing = false
+implicit-external = false
+source-form = "free"
+
+[install]
+library = true
+
+[dependencies]
+[dependencies.PENF]
+git = "https://github.com/szaghi/PENF"
+
+[dependencies.StringiFor]
+git = "https://github.com/szaghi/StringiFor"
+
+[[test]]
+name = "baruch_test_toolchain"
+source-dir = "src/tests"
+main = "baruch_test_toolchain.F90"
