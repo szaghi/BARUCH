@@ -21,6 +21,7 @@ const docs = [
     { text: '2. Write an extension', link: '/manual/tutorial/02-extension' },
     { text: '3. Read a document',    link: '/manual/tutorial/03-read' },
     { text: '4. Render HTML',        link: '/manual/tutorial/04-render' },
+    { text: '5. Inline content',     link: '/manual/tutorial/05-inlines' },
   ] },
   { text: 'Cookbook', items: [
     { text: 'All recipes', link: '/manual/cookbook' },
@@ -31,6 +32,7 @@ const docs = [
     { text: 'Input',        link: '/reference/input' },
     { text: 'Extensions',   link: '/reference/extensions' },
     { text: 'Blocks',       link: '/reference/blocks' },
+    { text: 'Inlines',      link: '/reference/inlines' },
     { text: 'HTML',         link: '/reference/html' },
     { text: 'Walk',         link: '/reference/walk' },
     { text: 'Conformance',  link: '/reference/conformance' },

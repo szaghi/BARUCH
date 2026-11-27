@@ -8,8 +8,9 @@ parser), `baruch_blocks_state`, `baruch_blocks_scan` and `baruch_blocks_definiti
 
 ::: info Status (plan step 1.5)
 The block phase is complete: every block construct of the spec, checked by the 237 examples of the
-[blocks-only subset](/reference/conformance#the-blocks-only-subset) (all pass). The **inline** phase is not written
-yet (phase 2): the content of a paragraph or a heading is one text node holding its raw text, `*rig*` and all.
+[blocks-only subset](/reference/conformance#the-blocks-only-subset) (all pass). The block phase leaves the content of
+a paragraph or a heading as one text node; the **inline** phase, which `parse` runs next, replaces it with the
+inline nodes ([Inlines](/reference/inlines)).
 :::
 
 ## Parsing
@@ -57,32 +58,34 @@ fails or breaks the hook contract, or memory runs out.
 | `NODE_HTML_BLOCK` | the seven start conditions of spec 4.6 (a lone tag, type 7, cannot interrupt a paragraph) | none | `literal` |
 | `NODE_THEMATIC_BREAK` | three or more `-`, `*` or `_`, alone with spaces and tabs | none | the character |
 | `NODE_LINK_REFERENCE_DEFINITION` | `[label]: destination "title"` at the start of a paragraph | none | `label`, `destination`, `title` |
-| `NODE_TEXT` | the content of a paragraph or a heading | none | `literal` |
+| `NODE_TEXT` | the content of a paragraph or a heading, until the inline phase replaces it | none | `literal` |
 
 ### Content
 
 - **Paragraph text**: the paragraph's lines without their leading spaces and tabs, joined by LF, the trailing white
-  space of the last line removed. Nothing else is processed: the inline parser (phase 2) reads it, so backslash
-  escapes, emphasis, links and line breaks are still the characters written. The text node has the paragraph's span.
+  space of the last line removed. Nothing else is processed: it is the subject of the inline parser
+  ([Inlines](/reference/inlines)), which replaces the text node with the inline nodes before `parse` returns. The text
+  node has the paragraph's span.
 - **Heading text**: an ATX heading's line without its opening `#`s, the white space around it and its closing
   sequence (a run of `#` after a space or a tab, or the whole content when it is only `#`s: `### ###` is an empty
   heading); a setext heading's paragraph text. An empty heading has no child.
 - **Code block literal**: the lines of the block, each followed by LF (an empty block: an empty literal). An indented
   block drops four columns from each line and its trailing blank lines; a fenced one drops, from each line, up to as
   many spaces as the opening fence was indented. **Info string**: the rest of the opening fence line, trimmed, its
-  backslash escapes processed (no backtick allowed after a backtick fence).
+  backslash escapes and character references processed (no backtick allowed after a backtick fence).
 - **HTML block literal**: its lines as written (leading spaces of the first included), each followed by LF. Types 1 to
   5 end on the line meeting their end condition (`</script>`, `</pre>`, `</style>`, `</textarea>`, `-->`, `?>`, `>`,
   `]]>`), which belongs to the block; types 6 and 7 end before a blank line.
 - **Link reference definitions** are nodes in place, before the paragraph they were read from (a paragraph made of
   definitions only goes): the `label` as written between the brackets (matching normalises it, plan step 2.4); the
-  `destination` without its `<>`, the `title` without its delimiters, both with their backslash escapes processed. A
+  `destination` without its `<>`, the `title` without its delimiters, both with their backslash escapes and character
+  references processed. A
   definition cannot interrupt a paragraph, and under a setext underline a paragraph's definitions come out first (an
   underline under definitions only is paragraph text, spec example 216).
 
-Entity and numeric character references (`&ouml;`, `&#42;`) in an info string, a destination or a title stay as
-written until the inline step 2.3, which decodes them with the
-[HTML5 entity table](/reference/conformance#the-html5-entity-table).
+Backslash escapes and entity and numeric character references (`&ouml;`, `&#42;`) in an info string, a destination
+or a title are processed in one pass, left to right, with the
+[HTML5 entity table](/reference/conformance#the-html5-entity-table) ([Inlines](/reference/inlines#strings-of-the-blocks)).
 
 Line endings are LF in every string, whatever the source used (CR, CRLF); the [spans](#spans) keep pointing at the
 source as loaded.

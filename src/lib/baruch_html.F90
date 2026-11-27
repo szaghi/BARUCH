@@ -16,8 +16,8 @@ module baruch_html
 !<   image's content as plain text). Destinations are written as cmark does (`escape_href`): the URL-safe characters
 !<   kept, `&` and `'` as character references, every other byte percent-encoded.
 !<
-!< Until the inline parser (plan phase 2) a parsed paragraph or heading holds one text node, written as escaped text;
-!< the inline kinds are written whenever a tree holds them (built by hand now, parsed in phase 2).
+!< A parsed paragraph or heading holds the inline nodes of `baruch_inlines`; emphasis, links and images are parsed from
+!< plan step 2.4, and written whenever a tree holds them (built by hand until then).
 !<
 !< An extension node no enabled extension writes is rendered **transparently**: its children are rendered as if it were
 !< not there; one with no children writes its literal, HTML-escaped (a block one on its own line). Nothing is dropped

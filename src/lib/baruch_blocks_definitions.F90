@@ -11,10 +11,11 @@ module baruch_blocks_definitions
 !<
 !< - the **label** as written between the brackets, untouched (matching normalises it: case fold, white space);
 !< - the **destination** without its `<>`, if any, and the **title** without its delimiters, both with their
-!<   backslash escapes processed. Entity and numeric character references stay as written until the HTML5 entity
-!<   table of plan step 2.2 (decoded by the inline step 2.3).
-use penf,               only : I4P
-use baruch_blocks_scan, only : BACKSLASH, is_space_or_tab, is_ascii_punctuation, backslash_unescape
+!<   backslash escapes and their entity and numeric character references processed, in one pass
+!<   (`baruch_inlines_scan`'s `unescape_string`).
+use penf,                only : I4P
+use baruch_blocks_scan,  only : BACKSLASH, is_space_or_tab, is_ascii_punctuation
+use baruch_inlines_scan, only : unescape_string
 implicit none
 private
 public :: parse_definition
@@ -68,7 +69,7 @@ contains
    t_length = 0_I4P
    if (pos /= before) t_length = scan_title(text, pos)
    if (t_length > 0_I4P) then
-      title = backslash_unescape(text(pos+1:pos+t_length-2))
+      title = unescape_string(text(pos+1:pos+t_length-2))
       pos = pos + t_length
    else
       pos = before
@@ -84,7 +85,7 @@ contains
    endif
    if (pos <= n) pos = pos + 1_I4P ! the line feed
    next = pos
-   destination = backslash_unescape(text(d_first:d_last))
+   destination = unescape_string(text(d_first:d_last))
    endsubroutine parse_definition
 
    ! private

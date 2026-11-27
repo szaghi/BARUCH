@@ -38,15 +38,15 @@ What the tree shows:
 
 - `# Field report #` is a level-1 ATX heading with one closing `#`, which is not part of its text; `Results` over
   `-------` is a level-2 setext heading.
-- The paragraph's text is still raw: `*rig*` is not emphasis yet, and the line break is the LF between its two lines.
-  Inline content (emphasis, links, code spans, line breaks) is parsed in phase 2; until then a paragraph or a heading
-  holds one text node.
+- A paragraph or a heading holds its **inline content**: the line ending between the paragraph's two lines is a
+  `softbreak` between two texts ([chapter 5](./05-inlines) shows the other inline nodes). `*rig*` is still text:
+  emphasis and links are parsed from plan step 2.4.
 - `1)` items make an ordered list from 1 with the `)` delimiter; the `-` items indented under `temperature` are a list
   inside its item. Both lists are tight: no blank line between their items.
 - The code block keeps its `~~~` fence and its info string `fortran`; its literal ends with LF.
 - `reference probe.` has no `>` but continues the quoted paragraph: a **lazy continuation line**.
 - The link reference definition is a node in place, its label as written, its destination and title without their
-  delimiters. Links will be resolved against it in phase 2.
+  delimiters. Links will be resolved against it from plan step 2.4.
 - The HTML comment is an HTML block, its literal verbatim.
 
 ## Spans: back to the source
@@ -63,6 +63,6 @@ The whole program:
 
 ::: tip What you learned
 `load_file` (or `load`) then `options%parse` builds the block tree; the typed accessors read what a block means and
-the slots how it was written; inline content is raw text until phase 2; spans lead back to the source.
+the slots how it was written; a paragraph or a heading holds inline nodes; spans lead back to the source.
 Reference: [Blocks](/reference/blocks).
 :::

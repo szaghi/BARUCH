@@ -82,8 +82,9 @@ contains
    call doc%load('Intro text'//LF//'%% one'//LF//'after')
    call opts%parse(doc, stat=stat)
    call check(stat == BARUCH_OK .and. doc%children_number(doc%root()) == 1, 'disabled: one paragraph')
-   call check(doc%literal(doc%first_child(doc%first_child(doc%root()))) == 'Intro text'//LF//'%% one'//LF//'after', &
-              'disabled: the paragraph holds the three lines')
+   call check(doc%children_number(doc%first_child(doc%root())) == 5, &
+              'disabled: the paragraph holds the three lines, two soft breaks between them')
+   call check(doc%literal(doc%last_child(doc%first_child(doc%root()))) == 'after', 'disabled: the third line')
    call check(.not. doc%is_known_kind(KIND_PERCENT), 'disabled: its kind is not registered')
    call doc%load('a'//LF//'b'//LF//LF//'  c  '//LF//LF)
    call none%parse(doc, stat=stat)
@@ -115,7 +116,8 @@ contains
    call check(doc%node_kind(c) == KIND_PERCENT .and. doc%literal(c) == ' a'//LF//' b', 'note: the percent block')
    c = doc%next_sibling(c)
    call check(doc%node_kind(c) == NODE_PARAGRAPH, 'note: a paragraph in it')
-   call check(doc%literal(doc%first_child(c)) == 'text'//LF//'lazy', 'note: the lazy line joins the paragraph')
+   call check(doc%children_number(c) == 3 .and. doc%literal(doc%last_child(c)) == 'lazy', &
+              'note: the lazy line joins the paragraph')
    call check(doc%source_slice(doc%span_first(note), doc%span_last(note)) == &
               '!> %% a'//LF//'!>%% b'//LF//'!> text'//LF//'lazy', 'note: its span covers the lazy line')
    ! a note cannot hold a note: the outer one closes, the inner one opens in the root

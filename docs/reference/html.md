@@ -4,10 +4,10 @@ The HTML renderer: a document's tree written as cmark writes it, as an HTML frag
 `markdown_options` (the options hold the extensions, whose nodes their own hooks write); module `baruch_html`
 (internal: a client calls the methods). A worked example: [tutorial chapter 4](/manual/tutorial/04-render).
 
-::: info Status (plan step 1.6)
-Every core kind is written, blocks and inlines. Until the inline parser (plan phase 2) a parsed paragraph or heading
-holds one text node, so its content is written as escaped text, `*emphasis*` and all; a tree built by hand with inline
-nodes is written in full. The conformance driver renders through this renderer:
+::: info Status (plan step 2.3)
+Every core kind is written, blocks and inlines. A parsed paragraph or heading holds the inline nodes of
+[Inlines](/reference/inlines): text, code spans, raw HTML, autolinks, line breaks; emphasis, links and images are
+parsed from plan step 2.4 (until then `*emphasis*` is text), and a tree built by hand with them is written in full. The conformance driver renders through this renderer:
 [Conformance](/reference/conformance#counts).
 :::
 
@@ -107,8 +107,8 @@ An **extension node no enabled extension writes** (its extension disabled, or wi
 transparently: its children as if it were not there; with no children, its literal, escaped (a block on its own line).
 Nothing is dropped and no markup is invented.
 
-The output hooks were declared in step 1.3 ([Extensions](/reference/extensions#the-hooks)); the inline parser of
-phase 2 adds no hook here.
+The output hooks were declared in step 1.3 ([Extensions](/reference/extensions#the-hooks)); the inline parser adds
+no hook here.
 
 ## Errors
 

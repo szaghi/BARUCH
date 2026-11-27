@@ -64,13 +64,23 @@ contains
    endfunction child
 
    function text_of(doc, n) result(text)
-   !< Return the literal of a block's text child (empty if none).
+   !< Return the inline content of a block as the block parser read it: its texts' literals, a soft line break as LF
+   !< (empty if none). The blocks tested here hold no other inline construct.
    type(markdown_document), intent(in) :: doc  !< Document.
    integer(I4P),            intent(in) :: n    !< Block.
    character(:), allocatable           :: text !< Text.
+   integer(I4P)                        :: c    !< Child.
 
    text = ''
-   if (doc%first_child(n) /= 0_I4P) text = doc%literal(doc%first_child(n))
+   c = doc%first_child(n)
+   do while (c /= 0_I4P)
+      if (doc%node_kind(c) == NODE_SOFTBREAK) then
+         text = text//LF
+      else
+         text = text//doc%literal(c)
+      endif
+      c = doc%next_sibling(c)
+   enddo
    endfunction text_of
 
    function span_of(doc, n) result(text)
@@ -292,7 +302,7 @@ contains
    call check(levels == depth, 'deep: every level a block quote')
    call check(doc%node_kind(n) == NODE_PARAGRAPH, 'deep: a paragraph at the bottom')
    if (doc%node_kind(n) == NODE_PARAGRAPH) call check(text_of(doc, n) == 'deep'//LF//'down', 'deep: its two lines')
-   call check(doc%nodes_number() == depth + 3, 'deep: root, quotes, paragraph, text')
+   call check(doc%nodes_number() == depth + 5, 'deep: root, quotes, paragraph, text, soft break, text')
    ! as many nested list items on one line: a list and an item per marker
    source = repeat('- ', depth)//'x'//LF
    call parse(doc, source)

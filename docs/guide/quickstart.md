@@ -1,7 +1,8 @@
 # Quick start
 
 The block structure is read ([tutorial chapter 3](/manual/tutorial/03-read)) and written as HTML
-([tutorial chapter 4](/manual/tutorial/04-render)); inline content and the writers are not written yet
+([tutorial chapter 4](/manual/tutorial/04-render)), with the inline content but for emphasis and links
+([tutorial chapter 5](/manual/tutorial/05-inlines)); emphasis, links and the writers are not written yet
 ([About](/guide/)). This page shows how a program uses the library today, and grows with it.
 
 ## A first program

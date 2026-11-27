@@ -9,7 +9,8 @@ module baruch_options
 !<
 !< `parse` reads the document's source (loaded by `markdown_document%load` or `load_file`) into its tree: the tree is
 !< reset to its root, the enabled extensions register their kinds in the document, the block parser runs
-!< (`baruch_blocks`: the CommonMark block structure, the extensions' block hooks tried before the core's starts).
+!< (`baruch_blocks`: the CommonMark block structure, the extensions' block hooks tried before the core's starts), then
+!< the inline parser over every paragraph and heading (`baruch_inlines`).
 !<
 !< The options also read a parsed tree back, because what an extension's node looks like from outside is its
 !< extension's to say: `render_html` (`baruch_html`: the HTML, a fragment or a standalone page, into a `character`, a
@@ -21,6 +22,7 @@ use stringifor,       only : string
 use baruch_document,  only : markdown_document
 use baruch_extension, only : markdown_extension, extension_slot
 use baruch_blocks,    only : parse_blocks
+use baruch_inlines,   only : parse_inlines
 use baruch_html,      only : render_html_document
 use baruch_walk,      only : walk_step
 use baruch_status
@@ -191,9 +193,9 @@ contains
 
    subroutine parse(self, doc, stat, errmsg)
    !< Parse a document's source into its tree, with the enabled extensions: the tree is reset to its root (the source
-   !< and its lines kept), the extensions' kinds registered, the blocks parsed. Parsing never fails on the text: a
-   !< nonzero `stat` comes from an extension (a hook failing, or breaking the hook contract: `BARUCH_ERR_CONTRACT`)
-   !< or from memory, and the tree then holds what was parsed before it.
+   !< and its lines kept), the extensions' kinds registered, the blocks parsed, then their inline content. Parsing
+   !< never fails on the text: a nonzero `stat` comes from an extension (a hook failing, or breaking the hook contract:
+   !< `BARUCH_ERR_CONTRACT`) or from memory, and the tree then holds what was parsed before it.
    class(markdown_options),   intent(in)            :: self   !< Options.
    type(markdown_document),   intent(inout)         :: doc    !< Document, its source loaded.
    integer(I4P),              intent(out), optional :: stat   !< Status.
@@ -211,6 +213,7 @@ contains
          call parse_blocks(doc, empty, stat=ierr, errmsg=msg)
       endif
    endif
+   if (ierr == BARUCH_OK) call parse_inlines(doc, stat=ierr, errmsg=msg)
    if (ierr /= BARUCH_OK) then
       call status_error(ierr, msg, stat, errmsg)
    else

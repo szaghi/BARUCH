@@ -58,12 +58,13 @@ use baruch_kinds_nodes,        only : NODE_DOCUMENT, NODE_BLOCK_QUOTE, NODE_LIST
                                       SLOT_LIST_MARKER, SLOT_CODE_FORM, SLOT_CODE_FENCE_CHAR, SLOT_CODE_FENCE_LENGTH, &
                                       SLOT_BREAK_CHAR, HEADING_ATX, HEADING_SETEXT, LIST_BULLET, LIST_ORDERED,        &
                                       CODE_INDENTED, CODE_FENCED
-use baruch_blocks_scan,        only : is_space_or_tab, backslash_unescape, scan_thematic_break, scan_atx_start,    &
+use baruch_blocks_scan,        only : is_space_or_tab, scan_thematic_break, scan_atx_start,    &
                                       scan_open_fence, scan_close_fence, scan_setext_underline, scan_list_marker, &
                                       scan_html_block_start, html_block_end
 use baruch_blocks_state,       only : block_parser, CONTENT_PARAGRAPH, FLAG_LAST_LINE_BLANK, FLAG_LAST_LINE_CHECKED, &
                                       FLAG_LIST_LAST_LINE_BLANK, TAB_STOP, CODE_INDENT, LF
 use baruch_blocks_definitions, only : parse_definition
+use baruch_inlines_scan,       only : unescape_string
 use baruch_status
 implicit none
 private
@@ -911,8 +912,9 @@ contains
    endsubroutine finish_atx_heading
 
    subroutine finish_code_block(p, doc, n, ierr, msg)
-   !< Finish a code block: a fenced one's first line is its info string (trimmed, backslash escapes processed), the
-   !< other lines its literal; an indented one drops its trailing blank lines. Each line of the literal ends with LF.
+   !< Finish a code block: a fenced one's first line is its info string (trimmed, backslash escapes and character
+   !< references processed), the other lines its literal; an indented one drops its trailing blank lines. Each line of
+   !< the literal ends with LF.
    type(block_parser),        intent(inout) :: p     !< Parser.
    type(markdown_document),   intent(inout) :: doc   !< Document.
    integer(I4P),              intent(in)    :: n     !< Code block.
@@ -934,7 +936,7 @@ contains
             if (.not. is_space_or_tab(p%src(b:b))) exit
             b = b - 1_I4P
          enddo
-         if (b >= a) call doc%set_info(n, backslash_unescape(p%src(a:b)), stat=ierr, errmsg=msg)
+         if (b >= a) call doc%set_info(n, unescape_string(p%src(a:b)), stat=ierr, errmsg=msg)
       endif
       if (ierr == BARUCH_OK) call doc%set_literal(n, lines_text(p, 2_I4P, p%tip_lines), stat=ierr, errmsg=msg)
    else

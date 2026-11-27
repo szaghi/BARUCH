@@ -14,7 +14,7 @@ the code; each public entity gets its row in the step that adds it. The rules ev
 |---|---|---|---|
 | `markdown_document` | type | the document: the flat node arrays, the string pool, the typed accessors | [The document](/reference/document) |
 | | | its source: loading from text, a `string` or a file, sanitised UTF-8, the lines | [Input](/reference/input) |
-| `markdown_options` | type | what a parse does: the extensions registered and enabled by name; `parse` | [Extensions](/reference/extensions#the-options), [Blocks](/reference/blocks#parsing) |
+| `markdown_options` | type | what a parse does: the extensions registered and enabled by name; `parse` | [Extensions](/reference/extensions#the-options), [Blocks](/reference/blocks#parsing), [Inlines](/reference/inlines) |
 | | | `render_html`, `render_html_file`: the tree as HTML, a fragment or a standalone page | [HTML](/reference/html) |
 | | | `walk`: the tree as events, one per call | [Walk](/reference/walk) |
 | `EVENT_*` | constants | the walk's events: enter and leave a block or a span, text | [Walk](/reference/walk#events) |
@@ -46,7 +46,7 @@ The procedures are type-bound methods of these types.
 | | [HTML](/reference/html) | the renderer: fragment and standalone output, sinks, extension hooks | 1.6 |
 | | [Walk](/reference/walk) | the events and their offsets | 1.6 |
 | 2. Inlines | [Conformance](/reference/conformance#the-html5-entity-table) | the pinned HTML5 entity table; the pathological inputs | 2.2, 2.6 |
-| | Inlines | the inline kinds and their fields | 2.3 |
+| | [Inlines](/reference/inlines) | the inline kinds and their fields, spans, what step 2.4 completes | 2.3 |
 | | Links and references | links, images, reference definitions | 2.4 |
 | | Extensions | the inline hooks | 2.5 |
 | 3. The tree writer | Equality | what tree equality compares and ignores | 3.1 |

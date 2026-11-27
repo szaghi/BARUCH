@@ -152,16 +152,16 @@ contains
    character(:), allocatable :: body    !< Expected body, from the closing title tag.
 
    head = '<!DOCTYPE html>'//LF//'<html>'//LF//'<head>'//LF//'<meta charset="utf-8">'//LF//'<title>'
-   body = '</title>'//LF//'</head>'//LF//'<body>'//LF//'<p>text</p>'//LF//'<h2>A &lt;b&gt;'//LF//'c</h2>'//LF// &
+   body = '</title>'//LF//'</head>'//LF//'<body>'//LF//'<p>text</p>'//LF//'<h2>A &lt; b &amp;'//LF//'c</h2>'//LF// &
           '</body>'//LF//'</html>'//LF
-   call doc%load('text'//LF//LF//'A <b>'//LF//'c'//LF//'---'//LF)
+   call doc%load('text'//LF//LF//'A < b &amp;'//LF//'c'//LF//'---'//LF)
    call options%parse(doc)
    call options%render_html(doc, html, standalone=.true.)
-   call check(html == head//'A &lt;b&gt;'//LF//'c'//body, 'standalone: titled by the first heading'//LF//html)
+   call check(html == head//'A &lt; b &amp; c'//body, 'standalone: titled by the first heading'//LF//html)
    call options%render_html(doc, html, standalone=.true., title='x & y')
    call check(html == head//'x &amp; y'//body, 'standalone: the title given'//LF//html)
    call options%render_html(doc, html, standalone=.false., title='ignored')
-   call check(html == '<p>text</p>'//LF//'<h2>A &lt;b&gt;'//LF//'c</h2>'//LF, 'standalone: a fragment'//LF//html)
+   call check(html == '<p>text</p>'//LF//'<h2>A &lt; b &amp;'//LF//'c</h2>'//LF, 'standalone: a fragment'//LF//html)
    call doc%load('no heading'//LF)
    call options%parse(doc)
    call options%render_html(doc, html, standalone=.true.)

@@ -50,11 +50,12 @@ What the output shows:
 - Every block is written as cmark writes it: `<p>` but in a tight list (`pressure`, `inlet`), `<ol>` for the `1)`
   items, `class="language-fortran"` from the info string, the HTML comment verbatim, nothing for the link reference
   definition.
-- `*rig*` is still `*rig*`: the inline content of a paragraph is escaped text until the inline parser (plan phase 2).
-  The renderer writes the inline kinds already (`<em>`, `<a href>`, `<img>`...): a tree built by hand with them comes
-  out as cmark would write it.
+- `*rig*` is still `*rig*`: the inline parser writes code spans, autolinks, raw HTML, character references and
+  line breaks ([chapter 5](./05-inlines)); emphasis and links come with plan step 2.4. The renderer writes their kinds
+  already (`<em>`, `<a href>`, `<img>`...): a tree built by hand with them comes out as cmark would write it.
 - 20 blocks entered and left (the root, the headings, the paragraphs, the lists and their items, the code block, the
-  quote, the break, the definition, the HTML block) and 8 texts: one per paragraph and heading.
+  quote, the break, the definition, the HTML block) and 12 texts: the heading and item texts, and the two
+  two-line paragraphs, each a text, a soft break and a text.
 
 The whole program:
 

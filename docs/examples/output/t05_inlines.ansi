@@ -1,0 +1,46 @@
+$ t05_inlines
+# Run `42` &mdash; done
+
+> Set `dt = 1e-3` in <b>solver.ini</b>, see
+> <https://example.org/dt?step=1&amp;max=9>  
+> or write to <help@example.org>.
+
+Not code: \`dt\`, not a tag: 3 < 4 &copy;\
+a hard break above, a soft one below
+and a comment: <!-- the end -->
+
+heading
+  text         3-6       "Run "
+  code         7-10      "42"
+  text         11-23     " — done"
+paragraph
+  text         28-31     "Set "
+  code         32-42     "dt = 1e-3"
+  text         43-46     " in "
+  html_inline  47-49     "<b>"
+  text         50-59     "solver.ini"
+  html_inline  60-63     "</b>"
+  text         64-68     ", see"
+  softbreak    69-69     
+  link         72-112    -> https://example.org/dt?step=1&max=9  "https://example.org/dt?step=1&max=9"
+  linebreak    113-115   
+  text         118-129   "or write to "
+  link         130-147   -> mailto:help@example.org  "help@example.org"
+  text         148-148   "."
+paragraph
+  text         151-191   "Not code: `dt`, not a tag: 3 < 4 ©"
+  linebreak    192-193   
+  text         194-229   "a hard break above, a soft one below"
+  softbreak    230-230   
+  text         231-245   "and a comment: "
+  html_inline  246-261   "<!-- the end -->"
+
+<h1>Run <code>42</code> — done</h1>
+<blockquote>
+<p>Set <code>dt = 1e-3</code> in <b>solver.ini</b>, see
+<a href="https://example.org/dt?step=1&amp;max=9">https://example.org/dt?step=1&amp;max=9</a><br />
+or write to <a href="mailto:help@example.org">help@example.org</a>.</p>
+</blockquote>
+<p>Not code: `dt`, not a tag: 3 &lt; 4 ©<br />
+a hard break above, a soft one below
+and a comment: <!-- the end --></p>

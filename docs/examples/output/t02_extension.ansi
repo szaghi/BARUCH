@@ -14,7 +14,11 @@ the block written back:
 with "percent" disabled:
 document
   paragraph
-    text "A paragraph.\n%% raw line, *not* emphasis\n%%   indented marker"
+    text "A paragraph."
+    softbreak
+    text "%% raw line, *not* emphasis"
+    softbreak
+    text "%%   indented marker"
   paragraph
     text "Another paragraph."
 

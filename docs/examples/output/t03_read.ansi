@@ -1,11 +1,13 @@
 $ t03_read
-parse stat: 0, 28 nodes
+parse stat: 0, 32 nodes
 
 document
   heading level 1, ATX, closing #s 1
     text "Field report"
   paragraph
-    text "Measured on the *rig* yesterday;\nthe values are below."
+    text "Measured on the *rig* yesterday;"
+    softbreak
+    text "the values are below."
   heading level 2, setext
     text "Results"
   list ordered from 1, delimiter ")", tight
@@ -25,7 +27,9 @@ document
   code_block fenced ~~~, info "fortran", literal "print *, 'p = ', p\n"
   block_quote
     paragraph
-      text "Calibrated against the\nreference probe."
+      text "Calibrated against the"
+      softbreak
+      text "reference probe."
   thematic_break "*"
   link_reference_definition label "probe", destination "https://example.org/probe", title "Probe sheet"
   html_block "<!-- written by the rig -->\n"

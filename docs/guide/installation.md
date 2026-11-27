@@ -4,7 +4,7 @@ BARUCH needs a Fortran compiler and its dependencies, StringiFor and PENF (with 
 uses), fetched as sources and compiled with it.
 
 BARUCH follows its dependencies' **latest default branch**: nothing is pinned (no tag in `fobos` or `fpm.toml`, no
-tracked `fobos.lock`). The inline parser (planned, phase 2 of the plan) needs StringiFor **v1.12.3 or later**, the first
+tracked `fobos.lock`). The inline parser (phase 2 of the plan) needs StringiFor **v1.12.3 or later**, the first
 release with Unicode punctuation (`is_punct(unicode=.true.)`, the P and S general categories CommonMark's emphasis
 rules use) and full case folding (`casefold()`, for matching link labels). An older StringiFor in `src/third_party` is
 refreshed by `fobis fetch --update`.

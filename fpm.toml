@@ -69,3 +69,8 @@ main = "baruch_test_walk.F90"
 name = "baruch_test_entities"
 source-dir = "src/tests"
 main = "baruch_test_entities.F90"
+
+[[test]]
+name = "baruch_test_inlines"
+source-dir = "src/tests"
+main = "baruch_test_inlines.F90"

@@ -190,7 +190,7 @@ with the same value; the count is 2,231.
 
 **What is kept.** Every name the JSON lists, both forms, mapped to the UTF-8 bytes of its code points (1 to 6 bytes;
 93 names stand for two code points, `&ngE;` is U+2267 U+0338). CommonMark recognises only the names ending in `;`, and
-the inline parser (plan step 2.3) looks up `name;` only, so the 106 legacy forms never match in CommonMark; they are
+the inline parser ([Inlines](/reference/inlines)) looks up `name;` only, so the 106 legacy forms never match in CommonMark; they are
 kept so that the table is the JSON one to one, and they change no result, since each has a `;` twin with the same
 value.
 
@@ -226,8 +226,29 @@ decreases from one step to the next (a standing gate of the plan).
 | 1.4 | 1 | 0 | no renderer yet: the empty output matches example 207 only |
 | 1.5 | 342 | 237 | the block parser, through the driver's test-only block serialiser; the same counts with every compiler and mode |
 | 1.6 | 342 | 237 | the public HTML renderer (`render_html_file`) in place of the serialiser; the same counts with gfortran, nvfortran and ifx, debug modes included |
+| 2.3 | 439 | 237 | the inline parser: escapes, character references, code spans, autolinks, raw HTML, line breaks; the same counts with gfortran (`tests-gnu-debug`), nvfortran (`tests-nvf`) and ifx (`tests-intel-debug`) |
 
 At 1.5 every failing example fails on inline syntax only (emphasis, code spans, links and their resolution,
 backslash escapes, character references, raw inline HTML, hard line breaks): the block structure of all 652 examples
 was checked against markdown-it-py 3.0.0 (CommonMark mode, inline rules off; a local check, not part of the harness),
 and the one difference is a character reference in an info string, decoded with the entity table of plan step 2.2.
+
+### The inline sections at step 2.3
+
+The sections of the constructs step 2.3 writes, and the examples still failing in them: each needs emphasis or a link,
+which step 2.4 writes.
+
+| Section | Passed | Total | Failing (example: what it needs) |
+|---|---|---|---|
+| Backslash escapes | 10 | 13 | 15: emphasis; 22: an inline link; 23: a reference link |
+| Entity and numeric character references | 14 | 17 | 32: an inline link; 33: a reference link; 37: emphasis |
+| Code spans | 22 | 22 | |
+| Autolinks | 19 | 19 | |
+| Raw HTML | 20 | 20 | |
+| Hard line breaks | 13 | 15 | 638, 639: emphasis around the break |
+| Soft line breaks | 2 | 2 | |
+| Textual content | 3 | 3 | |
+
+The other inline sections pass what needs no emphasis and no link: Emphasis and strong emphasis 45/132, Links 22/90,
+Images 2/22, Link reference definitions 10/27 (their use is a link), Inlines 1/1.
+
