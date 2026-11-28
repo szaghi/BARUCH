@@ -1,3 +1,13 @@
+<div align="center">
+
+<picture>
+  <source media="(prefers-color-scheme: dark)"  srcset="docs/public/logo/baruch-mark-dark.svg">
+  <source media="(prefers-color-scheme: light)" srcset="docs/public/logo/baruch-mark.svg">
+  <img src="docs/public/logo/baruch-mark.svg" alt="BARUCH, a leaning igeta holding 文 in a brushed ring" width="320">
+</picture>
+
+</div>
+
 # BARUCH
 
 **B**idirectional **A**ST **R**eader and **U**nparser for **C**ommonMark, **H**ookable: a Markdown parser and emitter
