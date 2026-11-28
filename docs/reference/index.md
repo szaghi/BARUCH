@@ -53,7 +53,7 @@ The procedures are type-bound methods of these types.
 | | [Extensions](/reference/extensions#inline-triggers) | the inline hooks: triggers, delimiter participation, inline blocks, post-processing | 2.5 |
 | 3. The tree writer | [Equality](/reference/equality) | what tree equality compares and ignores, the semantic fields per kind, the path | 3.1 |
 | | [Writer](/reference/writer) | recorded style, canonical mode, escaping, extensions' hooks; [round trip](/reference/conformance#round-trip) counts | 3.2 |
-| | Conformance | fuzzing | 3.3 |
+| | [Conformance](/reference/conformance#fuzzing) | fuzzing: mutations of the reader, random trees of the writer, seeds, the bugs found | 3.3 |
 | 4. The streaming writer | Streaming writer | containers, leaf blocks, tables, helpers | 4.1 |
 | 5. GFM extensions | GFM | tables, strikethrough, task lists, extended autolinks, alerts, footnotes | 5.1-5.6 |
 | 6. VitePress syntax | VitePress | containers, math, front matter, anchors, attributes, imports, `[[toc]]`, fence titles | 6.1-6.8 |

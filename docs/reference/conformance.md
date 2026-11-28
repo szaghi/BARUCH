@@ -286,19 +286,19 @@ compares the two trees (`markdown_document%equal`, [Equality](/reference/equalit
 examples written back byte for byte), then:
 
 ```text
-commonmark: 652/652 round trip (recorded) (514 exact)
-commonmark: byte-identical (recorded style, no tab, no trailing space): 498/607 (82.0%)
+commonmark: 652/652 round trip (recorded) (515 exact)
+commonmark: byte-identical (recorded style, no tab, no trailing space): 500/607 (82.4%)
 ```
 
 The **byte-identical rate** is measured on the examples with no tab and no trailing space (607 of 652: a tab or a
 trailing space is often what an example is about, and no writer keeps both): how much of the source's style the
 recorded style gives back. It is a regression gate for the later steps, not a promise; the plan's target was 90%. The
-82% left are what the tree does not record, mostly the spec's deliberate oddities:
+18% left are what the tree does not record, mostly the spec's deliberate oddities:
 
 | Section | Not identical | Why |
 |---|---|---|
-| List items, Lists, Block quotes | 33 | lazy continuation lines (written with their markers), `>` without its space, the indentation of nested blocks, an item's blank first line |
-| Links, Link reference definitions, Images | 29 | escapes and references in destinations and titles, `'` and `(` title quotes, pointy destinations, spaces inside the parentheses, a `[` escaped where it would pair with the link after it |
+| List items, Lists, Block quotes | 32 | lazy continuation lines (written with their markers), `>` without its space, the indentation of nested blocks, an item's blank first line |
+| Links, Link reference definitions, Images | 28 | escapes and references in destinations and titles, `'` and `(` title quotes, pointy destinations, spaces inside the parentheses, a `[` escaped where it would pair with the link after it |
 | Emphasis and strong emphasis | 14 | runs the source let the delimiter algorithm split (`***foo**`, `foo******bar`), written as an emphasis and an escaped text |
 | Entity and numeric character references, Backslash escapes | 12 | escapes and references where none is needed (`\$`, `&copy;`): the text holds the characters |
 | Fenced code blocks | 10 | an unclosed fence (closed), a fence's indentation, spaces before the info string of a fence inside a container |
@@ -310,6 +310,7 @@ FLAP (a local check) are all written back byte for byte, and all read back equal
 | Step | Round trip, recorded | Round trip, canonical | Byte-identical (recorded) |
 |---|---|---|---|
 | 3.2 | **652**/652 | **652**/652 | 498/607 (82.0%) |
+| 3.3 | **652**/652 | **652**/652 | 500/607 (82.4%) |
 
 The same counts with gfortran (`tests-gnu-debug`), nvfortran (`tests-nvf`) and ifx (`tests-intel-debug`);
 `baruch_test_roundtrip` checks them on every build (`scripts/run_tests.sh`, `fpm test`).
@@ -460,3 +461,127 @@ table now grows with the longest string met, reset per block only as far as it w
 MB and 31 MB, past the last-level cache, and a plain paragraph of `e` of those sizes, with no backtick at all, shows
 the same ratio (about 19 with gfortran: loading 13 times slower, rendering 20 times): memory, not the algorithm.
 
+
+## Fuzzing
+
+Two fuzzers check what the spec examples cannot: inputs nobody wrote by hand. They live in one test,
+`src/tests/baruch_test_fuzz.F90`; `scripts/run_tests.sh` and `fpm test` run a fixed campaign, `scripts/fuzz.sh` the long
+ones.
+
+```bash
+bash scripts/fuzz.sh 100000                    # 10^5 mutations and 10^5 trees, a seed drawn and printed (gfortran)
+bash scripts/fuzz.sh 1000000 2887831255        # a given seed: the same inputs again, with any compiler
+bash scripts/fuzz.sh 100000 --mode tests-nvf   # another compiler or mode; --no-build, --progress K
+```
+
+`fuzz.sh` builds the test alone into `build/fuzz/MODE/`, prints the seed first and the test's summary last (`fuzz: seed
+S, mutations 1-N, trees N (R redrawn), digest D, F failure(s)`), and saves each failing input (the first 20), whole
+and shrunk, in `build/fuzz/MODE/failures-SEED/`. If the test crashes, the block of iterations after its last progress
+line runs again with `--trace`, which writes each input to a file before checking it: the crashing one is left there.
+The exit status is 0 when every input passes.
+
+### What is fuzzed
+
+| Fuzzer | Inputs | Checks |
+|---|---|---|
+| mutations of the reader | an example of the 652 fixtures, mutated 1 to 8 times: bytes inserted, deleted, replaced; spans duplicated, or spliced from another example; Markdown-significant tokens (`*_[]()<>!#-+`, backtick and tilde fences, `\`, `&`, `&#`, `<!--`, `]: `, list markers, setext lines), repeated 2 to 7 times; line endings (LF, CR, CRLF), tabs; ill-formed UTF-8 (a lone continuation byte, an overlong form, a truncated sequence, a surrogate, `F5`, `FF`) and U+0000 | load, parse, `render_html`, a walk to its end and `write_markdown` in both styles never fail; the HTML and both Markdown texts are well-formed UTF-8 (StringiFor `is_utf8`); each Markdown text parses to a tree `equal` to the first |
+| random trees of the writer | a document built with the document API: every core kind, blocks nested 4 deep, texts of ASCII punctuation, white space, Unicode letters, punctuation and spaces (U+00A0, U+2003), U+FFFD, `ẞ` (its case folding is `ss`), character references and Markdown tokens; links and images with odd destinations (white space, `<>`, parentheses, backslashes, references) and titles (quotes, parentheses, line feeds), reference forms whose label may or may not be defined, autolinks; code spans and fences with backticks; HTML blocks of the seven types, raw HTML; random recorded style slots (bullets, delimiters, fence characters and lengths, emphasis characters, link forms, break forms) | render, walk and write in both styles never fail, every output is UTF-8, each Markdown text reads back `equal` to the tree |
+
+The round trip on mutated inputs is the strong check: a mutant is a document nobody would write, and the recorded
+style has to write it back from its own odd source.
+
+A random tree is drawn among those Markdown can express ([Writer](/reference/writer#trees-that-cannot-be-written)), and
+a test function, `writable`, rejects the others (they are drawn again: about 2.7% of them): no empty paragraph or
+emphasis, no break at the edges of a paragraph, a heading or an emphasis, no two breaks in a row, no break or line
+ending in a heading of level 3 to 6, no raw HTML first in a paragraph or a heading (an HTML block, read back), no two
+code spans side by side (their backtick strings would be one), no link in a link, a link first in a paragraph or a
+heading with no `]` in its code or raw HTML (a definition, read back), fenced literals ending with a line ending, info
+strings with no white space at their ends; a loose list that reads back loose (a blank line after a definition ends
+nothing: cmark drops the definition's paragraph, and the blank line with it); in a tight list's items, only blocks that
+follow each other with no blank line (no lazy continuation of a paragraph left open, no HTML block of type 6 or 7 to
+end, no two block quotes, no definition after a blank line at the item's end). And two limits that are the writer's,
+not Markdown's: emphases nest at most two deep, and an emphasis holds at most one emphasis. Some deeper trees have
+no Markdown at all (an emphasis in an emphasis in an emphasis of `(`: whatever the characters, the innermost opener
+can also close, and closes the outermost; strong holding two strong of punctuation); for the others the writer's
+search (below) is bounded. Deeper emphases come from the mutations: a parsed tree is always writable, its source shows
+how.
+
+### Seeds and reproducibility
+
+Every draw comes from a xoshiro128** generator held in a variable of the test (no module state, never
+`random_number`, whose sequence differs per compiler), its 32-bit words kept in 64-bit integers so that no operation
+overflows. Each iteration is seeded from the seed, the fuzzer and the iteration number (MurmurHash3's finaliser), so an
+iteration can be replayed alone (`--start I --mutations 1 --trees 0`, `--trace FILE` to see it), and each draw is a
+statement of its own (the order of a statement's function references is the processor's). The summary's digest, an
+FNV-1a hash of every input made, is the same with every compiler: `5CC4EC65` for the CI campaign with gfortran 16.2,
+nvfortran 26.9 and ifx 2026.2.
+
+`baruch_test_fuzz --dump FILE` prints the tree of a Markdown file, `--check FILE` checks one file as a mutant is
+checked. A failing input is shrunk before it is printed: spans of its bytes removed, halving their length, while the
+same check fails (a tree: nodes unlinked and texts shortened while it stays writable and fails). The output gives the
+shrunk input with its bytes escaped, the difference `equal` found, and the Markdown written in both styles.
+
+### The CI campaign
+
+With no argument (as `run_tests.sh` and `fpm test` run it) the test checks the regression inputs (below), then 10^4
+mutations and 10^4 trees with the seed 20261127, in a few seconds with every compiler and mode, so no mode is scaled
+down:
+
+| Mode | Time |
+|---|---|
+| `tests-gnu` (gfortran 16.2, release) | 2.1 s |
+| `tests-gnu-debug` (all checks) | 3.1 s |
+| `tests-nvf` (nvfortran 26.9) | 3.1 s |
+| `tests-intel-debug` (ifx 2026.2, all checks but bounds) | 4.2 s |
+
+### Campaigns run
+
+| Seed | Mutations and trees, each | Mode | Failures | Time |
+|---|---:|---|---|---:|
+| 1183845045 | 10^5 | `tests-gnu` | 0 | 18 s |
+| 3049644105 | 10^5 | `tests-gnu` | 0 | 22 s |
+| 2887831255 | 10^6 | `tests-gnu` | 1: emphases four deep, from a run of `*` (below) | 206 s |
+| 2673062487 | 10^5 | `tests-nvf` | 1: the same class | 42 s |
+| 777 | 10^5 | `tests-gnu-debug` | 1: a definition then a setext heading starting with raw HTML (fixed since) | 35 s |
+
+Earlier campaigns found the bugs of the next section; each was fixed and its shrunk input added to the regression
+inputs, which the CI campaign checks first: 63 inputs, 47 sources and 16 trees built by hand. With the writer of step
+3.2, 58 of them fail, and so do 5322 of the 20000 inputs of the CI campaign.
+
+### Bugs found and fixed
+
+All in the writer; the parser had none (every mutant parsed, rendered and walked; a mutant's round trip failed only
+when the writer wrote it back wrong).
+
+| Input class | Cause | Fix |
+|---|---|---|
+| a letter next to an emphasis whose content starts (ends) with punctuation (`l*<!X y>*`, `**[]()**F`), an emphasis of `_` inside a word (`1_`t`_`) | the delimiter does not flank there: the parser reads text | the letter is written as a numeric character reference (`&#108;*<!X y>*`): it reads as the letter, the delimiter run sees `;` or `&`, punctuation |
+| an emphasis first or last in one of the same kind and character (`**6*D*`), strong around an emphasis, an emphasis whose opener can also close inside another of the same character (`_*_(x_*_`), a text's `*` before it | the touching delimiters make one run; the rule of 3 (CommonMark 6.2, rule 9) or a both-flanking run pairs them otherwise | the delimiter characters are chosen by the flanking rules of the written neighbours; then the delimiters written are read back with the parser's algorithm (`emphasis_reads_back`), and when they would pair otherwise the writer tries other choices ([Writer](/reference/writer#emphasis)) |
+| a parsed run like `**;*"* b*)**`, a text's `*` touching a closer | escaping the text's `*` breaks the run that the source shows reads right | one of the choices leaves such a text run in the delimiter's run |
+| a backslash before a character written as a reference (`\&#108;`, `\&#160;`) | `\&` is an escaped `&`: the reference is lost | the backslash is escaped |
+| a `*` run before white space written as a reference (`*&#32;\`) | the run, seen with `&` after it, can open | its flanking is decided with `&` |
+| a backtick in an image's description and in its destination (`![`](<`b>)`) | the destination's backticks counted as already written: the text's backtick not escaped, a code span read back | counted after the link's text |
+| a text's backtick strings, the later escaped (`` `rN\`\`\` ``) | escaped strings are strings of one backtick, and close a single one before them | the escapes decided from the text's end, on the strings as written |
+| an HTML block of type 1 to 5 left open (`<!--`, `<?`, `<!A`) at the end of the document or of an item | a blank line written after it is read as its own | no blank line after it; an item is ended by indentation |
+| a raw HTML tag whose quoted value runs past the text (`<a f=">` then `">`) | the `<` not escaped: a tag, read back | escaped when the text could start a tag that what follows ends |
+| a link's tail across nodes (`[](l "` then `<a>`), a destination running past the text, a `<` or a backslash the writer escapes (`[](<<!- >)`, `\[](\\)`) | the tail judged on the text as it is, not as written | every reading tried: as written, with the text's escapes, ended later |
+| a `]` closing an `[` written before it | the label checked included the `[` (off by one) | the bytes between the brackets |
+| a `]` after a link, an `![` before it (`![[]()\]()`), an inactive `[` | a link deactivates `[` but not `![`; an inactive `[` stays on the bracket stack, the next `]` pops it | the writer keeps the stack as the parser does |
+| a paragraph or a setext heading whose written first line reads as a link reference definition (`[*\]:*]: t`, `[|]: \<!--`) | an escape, a reference or a later node completes the definition | the written line is checked (`parse_definition`), and its `[` escaped |
+| an info string starting with the fence character (`~~~` after `~~~~~`), holding a line ending or white space at its ends (from `&#10;`, `&#32;`) | the fence lengthened, the info string cut or stripped | a space after the fence; line endings and edge white space as references |
+| a fence-like line indented by a tab in a code block in an item | the tab, under 4 columns there, makes it a closing fence | tabs counted as indentation when the fence is chosen |
+| a destination holding a line ending (`[](&#10;)`) | written raw: no destination | as a reference |
+| a title whose lines start with white space | a paragraph's continuation lines lose it | as references |
+| a level 1 or 2 heading with a title or raw HTML spanning lines; a setext heading after a paragraph in a tight list; an indented code block there | an ATX heading is one line; a blank line would make the list loose | setext; ATX; fenced |
+| nested empty bullet items (`- - -`), a paragraph behind bullets (`* **`), an indented code block first in an item (`- -     -`) | the line is a thematic break | another bullet, an escape, fenced |
+| a definition at the end of a quote or an item, a paragraph after it; a paragraph or setext heading starting with raw HTML after a definition (`[F]: x` then `<l>`) | a definition is read from a paragraph: the next line continues it lazily; after a blank line the raw HTML opens an HTML block | a blank line between them, except before raw HTML: on the next line, indented by 4 when it could open an HTML block |
+| a block quote ending with a paragraph, a paragraph after it, in a tight item | a blank line makes the list loose | an empty `>` line closes the quote's paragraph; after a nested open paragraph only a lazy line needs the blank line |
+| an item's marker followed by a tab (`-\tb`), a fenced code block first in an item (`-  ```), an indented HTML block after the list (`- o` then `  <div`) or first in an item | the content's column written differently: the next lines change items | the padding read in columns (tabs to multiples of 4) and kept before a fenced block; widened before an indented HTML block after the list; the marker alone on its line before one first in the item; a block after a list never indented into its last item |
+| a `<` at the end of a link's text or of an emphasis that ends the block | the text was taken for the block's last: the link's `](...)` or the closer after it can end a tag | not the last |
+
+### What is left
+
+Emphases nested four deep or more, parsed from long runs of `*` or `_` (a mutation repeating a token): about one
+mutant in 10^6 has a tree whose writing the writer's bounded search of delimiter characters does not find; the
+recorded style usually finds it (the source's characters are one of the choices), the canonical style may not. Such
+an input fails the round trip and is reported by the fuzzer; no random tree reaches it (emphases nest two deep there).
