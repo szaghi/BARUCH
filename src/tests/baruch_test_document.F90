@@ -100,6 +100,7 @@ contains
    integer(I4P)              :: stat   !< Status.
    character(:), allocatable :: errmsg !< Message.
    character(:), allocatable :: s      !< String.
+   logical                   :: tight  !< A list's tightness.
 
    p = doc%new_node(NODE_PARAGRAPH)
    l = doc%new_node(NODE_LIST)
@@ -119,7 +120,8 @@ contains
    call check(stat == BARUCH_ERR_KIND .and. index(errmsg, 'a text, not a link') > 0, 'misuse: destination of a text')
    call doc%set_info(t, 'fortran', stat=stat)
    call check(stat == BARUCH_ERR_KIND, 'misuse: set_info of a text')
-   call check(.not. doc%list_tight(p, stat=stat) .and. stat == BARUCH_ERR_KIND, 'misuse: list_tight of a paragraph')
+   tight = doc%list_tight(p, stat=stat)
+   call check(.not. tight .and. stat == BARUCH_ERR_KIND, 'misuse: list_tight of a paragraph')
    ! values out of range
    call doc%set_list_type(l, 7_I4P, stat=stat)
    call check(stat == BARUCH_ERR_ARGUMENT, 'misuse: list type 7')

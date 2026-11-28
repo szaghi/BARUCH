@@ -206,6 +206,7 @@ contains
    integer(I4P)              :: k      !< Counter.
    integer(I4P)              :: stat   !< Status.
    character(:), allocatable :: errmsg !< Message.
+   character(:), allocatable :: name   !< An extension's name.
 
    call check(opts%extensions_number() == 0, 'options: empty')
    call opts%register(percent_extension())
@@ -221,7 +222,8 @@ contains
    call check(opts%is_enabled('note'), 'options: note enabled')
    call opts%enable('nothing', stat=stat, errmsg=errmsg)
    call check(stat == BARUCH_ERR_ARGUMENT .and. len(errmsg) > 0, 'options: enable an unknown name')
-   call check(opts%extension_name(9, stat=stat) == '' .and. stat == BARUCH_ERR_ARGUMENT, 'options: no extension 9')
+   name = opts%extension_name(9, stat=stat)
+   call check(name == '' .and. stat == BARUCH_ERR_ARGUMENT, 'options: no extension 9')
    ! more than the initial slots: the registry grows
    do k=1, 9
       call opts%register(broken_extension(mode=k), enabled=.false., stat=stat)

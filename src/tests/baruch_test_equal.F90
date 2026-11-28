@@ -143,13 +143,16 @@ contains
    character(:), allocatable :: path !< Path of the difference.
    character(:), allocatable :: what !< The difference.
    integer(I4P)              :: n    !< A node.
+   logical                   :: same !< Result of a comparison.
 
    ! empty documents
-   call check(e%equal(f, path=path) .and. len(path) == 0, 'by hand: two empty documents are equal')
+   same = e%equal(f, path=path)
+   call check(same .and. len(path) == 0, 'by hand: two empty documents are equal')
    call a%initialize
    call check(.not. e%equal(a, path=path, difference=what), 'by hand: empty and initialised differ')
    call check(path == '/document' .and. index(what, 'only in the second') > 0, 'by hand: empty: '//what)
-   call check(.not. a%equal(e, path=path) .and. path == '/document', 'by hand: initialised and empty: '//path)
+   same = a%equal(e, path=path)
+   call check(.not. same .and. path == '/document', 'by hand: initialised and empty: '//path)
    ! a run of texts is one text; an empty text is nothing; a detached node is not in the tree; spans and style slots
    call paragraph_of(a, ['ab'], n)
    call a%set_int_slot(a%first_child(a%root()), 1_I4P, 42_I4P)
@@ -157,20 +160,24 @@ contains
    n = b%new_node(NODE_TEXT)
    call b%set_literal(n, 'not in the tree')
    call b%set_span(b%root(), 3_I4P, 9_I4P)
-   call check(a%equal(b, path=path), 'by hand: a text run equals one text, at '//path)
+   same = a%equal(b, path=path)
+   call check(same, 'by hand: a text run equals one text, at '//path)
    n = b%new_node(NODE_TEXT)
    call b%append_child(b%first_child(b%root()), n)
-   call check(a%equal(b, path=path), 'by hand: a trailing empty text is nothing, at '//path)
+   same = a%equal(b, path=path)
+   call check(same, 'by hand: a trailing empty text is nothing, at '//path)
    call b%set_literal(n, 'c')
    call check(.not. a%equal(b, path=path, difference=what), 'by hand: a non-empty text joins the run')
    call check(path == '/document/paragraph/text' .and. index(what, '"ab" vs "abc"') > 0, 'by hand: run: '//what)
    ! emphasis character: style
    call emph_of(a, iachar('*'))
    call emph_of(b, iachar('_'))
-   call check(a%equal(b, path=path), 'by hand: emphasis characters are style, at '//path)
+   same = a%equal(b, path=path)
+   call check(same, 'by hand: emphasis characters are style, at '//path)
    n = b%new_node(NODE_TEXT)
    call b%append_child(b%first_child(b%root()), n)
-   call check(a%equal(b, path=path), 'by hand: an empty text after an emphasis is nothing, at '//path)
+   same = a%equal(b, path=path)
+   call check(same, 'by hand: an empty text after an emphasis is nothing, at '//path)
    ! attributes: a set, in any order
    call heading_of(a)
    call heading_of(b)
@@ -178,19 +185,23 @@ contains
    call a%set_attribute(a%first_child(a%root()), 'class', 'y')
    call b%set_attribute(b%first_child(b%root()), 'class', 'y')
    call b%set_attribute(b%first_child(b%root()), 'id', 'x')
-   call check(a%equal(b, path=path), 'by hand: attributes in any order, at '//path)
+   same = a%equal(b, path=path)
+   call check(same, 'by hand: attributes in any order, at '//path)
    call b%set_attribute(b%first_child(b%root()), 'id', 'z')
    call check(.not. a%equal(b, path=path, difference=what), 'by hand: an attribute value differs')
    call check(path == '/document/heading' .and. index(what, 'attribute "id"') > 0, 'by hand: attribute: '//what)
    call b%remove_attribute(b%first_child(b%root()), 'id')
-   call check(.not. a%equal(b, difference=what) .and. index(what, 'only in the first') > 0, 'by hand: '//what)
+   same = a%equal(b, difference=what)
+   call check(.not. same .and. index(what, 'only in the first') > 0, 'by hand: '//what)
    call b%set_attribute(b%first_child(b%root()), 'id', 'x')
    call b%set_attribute(b%first_child(b%root()), 'lang', 'it')
-   call check(.not. a%equal(b, difference=what) .and. index(what, 'only in the second') > 0, 'by hand: '//what)
+   same = a%equal(b, difference=what)
+   call check(.not. same .and. index(what, 'only in the second') > 0, 'by hand: '//what)
    ! extension kinds: by name, every slot
    call math_of(a, 1000_I4P, 'math')
    call math_of(b, 1001_I4P, 'math')
-   call check(a%equal(b, path=path), 'by hand: an extension kind by its name, not its number, at '//path)
+   same = a%equal(b, path=path)
+   call check(same, 'by hand: an extension kind by its name, not its number, at '//path)
    call b%set_int_slot(b%first_child(b%first_child(b%root())), 2_I4P, 7_I4P)
    call check(.not. a%equal(b, path=path, difference=what), 'by hand: an extension integer slot differs')
    call check(path == '/document/paragraph/math' .and. index(what, 'integer slot 2') > 0, 'by hand: slot: '//what)
@@ -206,6 +217,7 @@ contains
    type(markdown_options)    :: options !< Options.
    character(:), allocatable :: path    !< Path of the difference.
    integer                   :: depth   !< Nesting.
+   logical                   :: same    !< Result of a comparison.
 
    ! a variable, not a named constant: nvfortran 26.9 fails (internal error) on a repeat() of a long constant length
    ! folded in a contained procedure (reproducer notes/nvfortran-ilm-long-constant-string.f90)
@@ -213,7 +225,8 @@ contains
    call a%load(repeat('>', depth)//' deep'//LF)
    call options%parse(a)
    b = a
-   call check(a%equal(b, path=path), 'deep quotes: equal to the copy, at '//path(1:min(80, len(path))))
+   same = a%equal(b, path=path)
+   call check(same, 'deep quotes: equal to the copy, at '//path(1:min(80, len(path))))
    call b%load(repeat('>', depth)//' deer'//LF)
    call options%parse(b)
    call check(.not. a%equal(b, path=path), 'deep quotes: unequal')
@@ -240,12 +253,14 @@ contains
    type(markdown_document)   :: b     !< Second document.
    type(markdown_options)    :: options !< Options.
    character(:), allocatable :: what  !< The difference.
+   logical                   :: same  !< Result of the comparisons.
 
    call a%load(x)
    call options%parse(a)
    call b%load(y)
    call options%parse(b)
-   call check(a%equal(b, difference=what) .and. b%equal(a), 'style pair, '//label//': '//what)
+   same = a%equal(b, difference=what) .and. b%equal(a)
+   call check(same, 'style pair, '//label//': '//what)
    endsubroutine equal_pair
 
    subroutine unequal_pair(x, y, expected)
@@ -390,6 +405,9 @@ contains
 
    subroutine check(condition, label)
    !< Count a failed check and print it.
+   !<
+   !< A comparison is stored before the call: `path` and `difference` are defined by `equal`, so they may not appear
+   !< elsewhere in the statement that references it (F2023 10.1.4); nvfortran -O0 reads them before the call.
    logical,      intent(in) :: condition !< What must hold.
    character(*), intent(in) :: label     !< What is checked.
 

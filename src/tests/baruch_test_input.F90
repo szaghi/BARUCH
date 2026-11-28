@@ -235,6 +235,8 @@ contains
    type(markdown_document)   :: doc    !< Document.
    integer(I4P)              :: stat   !< Status.
    character(:), allocatable :: errmsg !< Message.
+   character(:), allocatable :: s      !< A line or a slice.
+   integer(I4P)              :: n      !< A byte offset.
 
    call doc%load('kept')
    call doc%load_file(DATA_DIR//'no_such_file.md', stat=stat, errmsg=errmsg)
@@ -245,16 +247,21 @@ contains
    call check(stat == BARUCH_ERR_ARGUMENT .and. index(errmsg, 'EBCDIC') > 0, &
               'errors: an unsupported encoding is not BARUCH_ERR_ARGUMENT')
    call check(doc%source() == 'kept', 'errors: an unsupported encoding changed the document')
-   call check(doc%line(2_I4P, stat=stat, errmsg=errmsg) == '' .and. stat == BARUCH_ERR_ARGUMENT .and. &
-              len(errmsg) > 0, 'errors: line 2 of a one-line source')
-   call check(doc%line_first(0_I4P, stat=stat) == 0_I4P .and. stat == BARUCH_ERR_ARGUMENT, 'errors: line_first(0)')
-   call check(doc%line_last(-1_I4P, stat=stat) == 0_I4P .and. stat == BARUCH_ERR_ARGUMENT, 'errors: line_last(-1)')
-   call check(doc%line_ending(9_I4P, stat=stat) == '' .and. stat == BARUCH_ERR_ARGUMENT, 'errors: line_ending(9)')
-   call check(doc%source_slice(3_I4P, 5_I4P, stat=stat) == '' .and. stat == BARUCH_ERR_ARGUMENT, &
-              'errors: source_slice beyond the end')
-   call check(doc%source_slice(0_I4P, 1_I4P, stat=stat) == '' .and. stat == BARUCH_ERR_ARGUMENT, &
-              'errors: source_slice from 0')
-   call check(doc%source_slice(1_I4P, 4_I4P, stat=stat) == 'kept' .and. stat == BARUCH_OK, 'errors: a good slice')
+   ! each result is stored first: a stat defined by a function may not appear elsewhere in its statement (F2023 10.1.4)
+   s = doc%line(2_I4P, stat=stat, errmsg=errmsg)
+   call check(s == '' .and. stat == BARUCH_ERR_ARGUMENT .and. len(errmsg) > 0, 'errors: line 2 of a one-line source')
+   n = doc%line_first(0_I4P, stat=stat)
+   call check(n == 0_I4P .and. stat == BARUCH_ERR_ARGUMENT, 'errors: line_first(0)')
+   n = doc%line_last(-1_I4P, stat=stat)
+   call check(n == 0_I4P .and. stat == BARUCH_ERR_ARGUMENT, 'errors: line_last(-1)')
+   s = doc%line_ending(9_I4P, stat=stat)
+   call check(s == '' .and. stat == BARUCH_ERR_ARGUMENT, 'errors: line_ending(9)')
+   s = doc%source_slice(3_I4P, 5_I4P, stat=stat)
+   call check(s == '' .and. stat == BARUCH_ERR_ARGUMENT, 'errors: source_slice beyond the end')
+   s = doc%source_slice(0_I4P, 1_I4P, stat=stat)
+   call check(s == '' .and. stat == BARUCH_ERR_ARGUMENT, 'errors: source_slice from 0')
+   s = doc%source_slice(1_I4P, 4_I4P, stat=stat)
+   call check(s == 'kept' .and. stat == BARUCH_OK, 'errors: a good slice')
    endsubroutine test_errors
 
    ! helpers
