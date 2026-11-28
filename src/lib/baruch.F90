@@ -9,8 +9,8 @@ module baruch
 !< (`NODE_*`, `SLOT_*`, `STRING_*`, ...), the walk's events (`EVENT_*`), and the status codes (`BARUCH_OK`,
 !< `BARUCH_ERR_*`). `markdown_options%parse` builds the CommonMark block structure (`baruch_blocks`) and the inline
 !< content of its paragraphs and headings (`baruch_inlines`), `markdown_options%render_html` writes a tree as HTML
-!< (`baruch_html`), `markdown_options%walk` reads it as events (`baruch_walk`); the writers are added behind this
-!< module, step by step.
+!< (`baruch_html`), `markdown_options%walk` reads it as events (`baruch_walk`), `markdown_document%equal` compares two
+!< trees by meaning (submodule `baruch_equal`); the writers are added behind this module, step by step.
 !<
 !< Kinds come from PENF and text from StringiFor, used here so that the library archive holds them; neither is
 !< re-exported, a client uses them directly.

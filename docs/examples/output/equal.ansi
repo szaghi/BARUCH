@@ -1,0 +1,5 @@
+$ equal
+emphasis: equal
+heading and bullets: equal
+strong for emphasis: /document/list[2]/item/paragraph/emph: kind emph vs strong
+a definition: /document/link_reference_definition: only in the second document

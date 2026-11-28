@@ -61,7 +61,7 @@ Escaping is defined by the parser: the writer escapes exactly what the reader wo
 | Link | inline, full, collapsed or shortcut reference, and its label |
 
 Link reference definitions are nodes, in place. The writer reuses the recorded style and is canonical where there is
-none; the `canonical` option ignores it. Tree equality ignores byte spans and style.
+none; the `canonical` option ignores it. [Tree equality](/reference/equality) ignores byte spans and style.
 
 ### A flat tree
 

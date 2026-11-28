@@ -19,6 +19,9 @@ module baruch_document
 !< order mark removed) and index its lines. Line endings (LF, CR, CRLF) are kept as they are, so spans are byte ranges
 !< of `source()`, and `line_first`/`line_last` give each line without its ending.
 !<
+!< Two documents compare by meaning with `equal` (submodule `baruch_equal`): kinds, structure, processed text, the
+!< semantic slots and the attributes; spans, recorded style, line endings and tombstones are ignored.
+!<
 !< Nothing in the document recurses: subtrees are visited by following the links. Every component is allocatable or
 !< a scalar, so assignment is a deep copy. Arrays grow by doubling. A misuse (a handle that is not a live node, an
 !< accessor of another kind, a value out of range, an edit that would make a cycle) returns a nonzero `stat` and a
@@ -153,6 +156,8 @@ type :: markdown_document
       procedure, pass(self) :: line_first        !< Return the first byte of a line.
       procedure, pass(self) :: line_last         !< Return the last byte of a line, its ending excluded.
       procedure, pass(self) :: line_ending       !< Return the ending of a line: LF, CR, CRLF or none.
+      ! equality (submodule baruch_equal)
+      procedure, pass(self) :: equal             !< Return true if two documents mean the same: spans, style ignored.
       ! private helpers
       procedure, pass(self), private :: allocate_pools   !< Allocate every array at its initial capacity.
       procedure, pass(self), private :: ensure_ready     !< Initialise an empty document before an edit.
@@ -171,6 +176,20 @@ type :: markdown_document
       procedure, pass(self), private :: set_source       !< Sanitise bytes, keep them as the source, index the lines.
       procedure, pass(self), private :: line_ok          !< Check a line number, set the status.
 endtype markdown_document
+
+interface
+   module function equal(self, other, path, difference) result(is)
+   !< Return true if two documents have the same meaning (submodule `baruch_equal`): the same kinds in the same
+   !< structure, the same processed text, the same semantic integer slots and attributes; spans, style slots, line
+   !< endings, tombstones and detached nodes ignored. On a difference, `path` names the first differing node
+   !< (`/document/list[2]/item/paragraph/emph`) and `difference` says what differs.
+   class(markdown_document),  intent(in)            :: self       !< Document.
+   class(markdown_document),  intent(in)            :: other      !< The other document.
+   character(:), allocatable, intent(out), optional :: path       !< Path of the first differing node, empty if equal.
+   character(:), allocatable, intent(out), optional :: difference !< What differs there, empty if equal.
+   logical                                          :: is         !< Result.
+   endfunction equal
+endinterface
 
 contains
    ! life cycle

@@ -14,6 +14,7 @@ the code; each public entity gets its row in the step that adds it. The rules ev
 |---|---|---|---|
 | `markdown_document` | type | the document: the flat node arrays, the string pool, the typed accessors | [The document](/reference/document) |
 | | | its source: loading from text, a `string` or a file, sanitised UTF-8, the lines | [Input](/reference/input) |
+| | | `equal`: two documents compared by meaning, the first difference by its path | [Equality](/reference/equality) |
 | `markdown_options` | type | what a parse does: the extensions registered and enabled by name; `parse` | [Extensions](/reference/extensions#the-options), [Blocks](/reference/blocks#parsing), [Inlines](/reference/inlines) |
 | | | `render_html`, `render_html_file`: the tree as HTML, a fragment or a standalone page | [HTML](/reference/html) |
 | | | `walk`: the tree as events, one per call | [Walk](/reference/walk) |
@@ -49,7 +50,7 @@ The procedures are type-bound methods of these types.
 | | [Inlines](/reference/inlines) | the inline kinds and their fields, spans, the emphasis algorithm | 2.3, 2.4 |
 | | [Links and references](/reference/links) | links, images, reference definitions, label matching, the forms recorded | 2.4 |
 | | [Extensions](/reference/extensions#inline-triggers) | the inline hooks: triggers, delimiter participation, inline blocks, post-processing | 2.5 |
-| 3. The tree writer | Equality | what tree equality compares and ignores | 3.1 |
+| 3. The tree writer | [Equality](/reference/equality) | what tree equality compares and ignores, the semantic fields per kind, the path | 3.1 |
 | | Writer | recorded style, canonical mode, escaping | 3.2 |
 | | Conformance | fuzzing | 3.3 |
 | 4. The streaming writer | Streaming writer | containers, leaf blocks, tables, helpers | 4.1 |

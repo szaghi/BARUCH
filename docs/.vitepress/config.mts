@@ -36,6 +36,7 @@ const docs = [
     { text: 'Links and references', link: '/reference/links' },
     { text: 'HTML',         link: '/reference/html' },
     { text: 'Walk',         link: '/reference/walk' },
+    { text: 'Equality',     link: '/reference/equality' },
     { text: 'Conformance',  link: '/reference/conformance' },
     { text: 'API',          link: '/api/' },
   ] },

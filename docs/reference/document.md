@@ -126,8 +126,8 @@ kind stores its own integers.
 
 ### The slot table
 
-The integer slots hold the meaning first and the source style after: equality (plan step 3.1) compares the semantic
-ones, the writer (step 3.2) reuses the style ones. A style slot left at 0 is "not recorded": the writer is canonical
+The integer slots hold the meaning first and the source style after: [equality](/reference/equality) compares the
+semantic ones, the writer (step 3.2) reuses the style ones. A style slot left at 0 is "not recorded": the writer is canonical
 there. Characters are stored as their ASCII code, `iachar`.
 
 | Kind | Integer slots | String slots |
@@ -176,6 +176,14 @@ They check the kind: on a node of another kind they return the default (0, false
 | `remove_attribute(n, name)` | nothing happens if absent |
 
 Names are compared byte by byte (`"id"` is not `"id "`). Any kind can carry attributes.
+
+## Equality
+
+| Method | |
+|---|---|
+| `equal(other, path, difference)` | true if two documents mean the same: kinds, structure, processed text, semantic slots, attributes; spans and style ignored |
+
+What it compares per kind, and the path of the first difference: [Equality](/reference/equality).
 
 ## Errors
 
