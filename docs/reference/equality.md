@@ -53,11 +53,11 @@ walk. Of each pair of nodes, equality compares:
 
 | Kind | Compared | Ignored (style) |
 |---|---|---|
-| document, block_quote, item, paragraph, thematic_break, softbreak, linebreak, emph, strong | the kind and the children only | `SLOT_BREAK_CHAR`, `SLOT_EMPHASIS_CHAR` |
+| document, block_quote, item, paragraph, thematic_break, softbreak, linebreak, emph, strong | the kind and the children only | `SLOT_BREAK_CHAR`, `SLOT_EMPHASIS_CHAR`, `SLOT_LINEBREAK_FORM`, `SLOT_LINEBREAK_SPACES` |
 | heading | `SLOT_HEADING_LEVEL` | `SLOT_HEADING_FORM` (ATX, setext), `SLOT_HEADING_CLOSING` |
 | list | `SLOT_LIST_TYPE`; `SLOT_LIST_TIGHT` (as tight or loose); `SLOT_LIST_START` of an ordered list | `SLOT_LIST_MARKER` (bullet, delimiter); the start of a bullet list |
 | code_block | the literal, the info string | `SLOT_CODE_FORM` (indented, fenced), `SLOT_CODE_FENCE_CHAR`, `SLOT_CODE_FENCE_LENGTH` |
-| html_block, code, html_inline | the literal | |
+| html_block, code, html_inline | the literal | a code span's `SLOT_CODE_TICKS`, `STRING_RAW` |
 | text | the literal of the [text run](#text-runs) | |
 | link, image | the destination, the title (and the children: the link text, the image description) | `SLOT_LINK_FORM` (inline, full, collapsed, shortcut, autolink), the label |
 | link_reference_definition | the label **normalised** as [matching](/reference/links#matching-a-label) normalises it, the destination, the title | the label as written |

@@ -108,8 +108,9 @@ link is made, so `*[foo*](/u)` is a `*` before a link whose text is `foo*`.
 ## The form and the label
 
 `SLOT_LINK_FORM` and `STRING_LABEL` are **style**: two documents differing only in them have equal trees (plan step
-3.1), and the writer (step 3.2) uses them to write a link back the way it was written: `[text][label]` stays a full
-reference, `[label]` a shortcut, instead of the canonical inline form. The label is kept as written (case, inner
+3.1), and the [writer](/reference/writer) uses them to write a link back the way it was written: `[text][label]` stays
+a full reference, `[label]` a shortcut, instead of the canonical inline form (when the label still finds a definition
+giving the link's destination and title). The label is kept as written (case, inner
 white space) because that is what the definition is found by; a writer ignoring the style writes the inline form,
 the destination and the title resolved.
 

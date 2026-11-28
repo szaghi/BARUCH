@@ -8,13 +8,14 @@ Every syntax beyond CommonMark goes through this interface, BARUCH's own extensi
 and 6) as much as a client's. The core is CommonMark only; extensions are compiled in and enabled per parse. A worked
 example: [tutorial chapter 2](/manual/tutorial/02-extension).
 
-::: info Status (plan step 2.5)
-Every hook is declared with its default, and all are live but `write_markdown` (the tree writer, step 3.2). The
+::: info Status (plan step 3.2)
+Every hook is declared with its default, and all are live. The
 **block** hooks: the CommonMark block parser ([Blocks](/reference/blocks)) calls them on every line, an extension's
 starts before the core's. The **inline** hooks and `contains_inlines`: the inline parser ([Inlines](/reference/inlines))
 calls them at the bytes the extensions declare, and pairs their delimiter runs in its delimiter algorithm.
 `post_process`: `parse` calls it after the inlines. The **HTML** and **walk** hooks: the renderer
-([HTML](/reference/html#extensions)) and the walk ([Walk](/reference/walk#extensions)).
+([HTML](/reference/html#extensions)) and the walk ([Walk](/reference/walk#extensions)). `write_markdown`: the tree
+writer ([Writer](/reference/writer#extensions)).
 :::
 
 ## The options
@@ -63,7 +64,7 @@ hook that can fail has `stat` (`intent(inout)`, 0 on entry: leave it so unless t
 | `delimiter_match(doc, delimiter, opener_length, closer_length, opener_original, closer_original, opener_can_close, closer_can_open, used, node, stat, errmsg)` | no match | **live**: for each closer of its characters, opener by opener | characters used from each run, the node wrapping the content |
 | `post_process(doc, stat, errmsg)` | nothing | **live**: after the inlines, once per parse | edit the parsed tree (task list checkboxes, footnote numbers): [post-processing](#post-processing) |
 | `write_html(doc, node, entering, html, handled, stat, errmsg)` | not mine | **live**: by `render_html`, for every event of every node, core kinds too | a node as HTML, on entering and on leaving it ([HTML](/reference/html#extensions)) |
-| `write_markdown(doc, node, entering, markdown, handled, stat, errmsg)` | none: deferred | step 3.2 | a node as Markdown: mandatory, whatever an extension reads it writes back |
+| `write_markdown(doc, node, entering, markdown, handled, stat, errmsg)` | none: deferred | **live**: by `write_markdown`, for every event of every node, core kinds too | a node as Markdown: mandatory, whatever an extension reads it writes back; for a block with children, the text after the last line feed of the entering Markdown prefixes its children's lines ([Writer](/reference/writer#extensions)) |
 | `walk_event(doc, node, entering, event, handled)` | not mine | **live**: by `walk` (and the renderer), for the extension kinds | the walk event a node is reported as ([Walk](/reference/walk#extensions)) |
 
 ### Opening a block

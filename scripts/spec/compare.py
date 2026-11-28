@@ -2,6 +2,7 @@
 """Compare a renderer's HTML with the expected HTML of a conformance suite (plan szaghi/BARUCH#1, step 1.4).
 
 Usage: python3 -I scripts/spec/compare.py [--suite NAME] --actual DIR [--blocks-only] [--failures N]
+       python3 -I scripts/spec/compare.py [--suite NAME] --actual DIR --roundtrip [--canonical] [--failures N]
        python3 -I scripts/spec/compare.py [--suite NAME] --self-test [--blocks-only]
 
 The suites and their fixtures are those of ``scripts/spec/fixtures.py`` (default suite ``commonmark``). ``DIR`` holds
@@ -36,6 +37,15 @@ belongs to the subset when all of these hold:
 
 Outside those elements (code blocks, HTML blocks) any character is allowed: the block parser alone decides that
 content. The subset is printed with its size.
+
+``--roundtrip`` (plan step 3.2) reads a round trip instead: ``DIR`` holds the Markdown the writer wrote for each example
+(``NNNN.md``) and, for an example whose second parse differs from the first, ``NNNN.md.fail`` with the difference
+(``markdown_document%equal``: the path of the first differing node, what differs). An example passes when its
+``NNNN.md`` exists and no ``.fail`` does. Every failure is listed with its number and difference; the counts per
+section and overall follow, the ``exact`` column counting the examples written back byte for byte, and the last lines are
+``NAME: P/T round trip (recorded|canonical)`` and the byte-identical rate over the examples with no tab and no trailing
+space (the recorded style's fidelity: a regression gate for later steps, not a promise; ``--canonical`` only says
+which style the driver used).
 
 ``--self-test`` compares the expected HTML with itself through the normaliser (stage 2 for every example, stage 1
 skipped), checks that the vendored normaliser is byte-identical to upstream below its header and passes upstream's
@@ -233,8 +243,10 @@ def outcome(expected: bytes, actual: bytes | None, *, exact: bool = True) -> str
     return "fail"
 
 
-def report(suite: fixtures.Suite, cases: list[Case], results: dict[int, str], subset: str) -> tuple[int, int]:
-    """Print the counts per section and overall; return (passed, total)."""
+def report(
+    suite: fixtures.Suite, cases: list[Case], results: dict[int, str], subset: str, what: str = "passed"
+) -> tuple[int, int]:
+    """Print the counts per section and overall, the last line ``NAME: P/T WHAT (E exact)``; return (passed, total)."""
     total: Counter[str] = Counter()
     passed: Counter[str] = Counter()
     exact: Counter[str] = Counter()
@@ -249,8 +261,45 @@ def report(suite: fixtures.Suite, cases: list[Case], results: dict[int, str], su
         print(f"  {section:<{width}}  {passed[section]:6d}  {exact[section]:6d}  {total[section]:6d}")
     p, e, t = sum(passed.values()), sum(exact.values()), sum(total.values())
     print(f"  {'total':<{width}}  {p:6d}  {e:6d}  {t:6d}")
-    print(f"{suite.name}: {p}/{t} passed ({e} exact)")
+    print(f"{suite.name}: {p}/{t} {what} ({e} exact)")
     return p, t
+
+
+def plain(markdown: bytes) -> bool:
+    """Return True if a Markdown example has no tab and no line ending in a space (the byte-identity population)."""
+    return b"\t" not in markdown and not any(line.endswith(b" ") for line in markdown.split(b"\n"))
+
+
+def roundtrip(cases: list[Case], actual_dir: Path, *, canonical: bool, subset: str, suite: fixtures.Suite,
+              limit: int) -> None:
+    """Report a round trip: the failures with their difference, the counts, the byte-identical rate."""
+    results: dict[int, str] = {}
+    differences: dict[int, str] = {}
+    for c in cases:
+        written = actual_dir / f"{c.stem}.md"
+        fail = actual_dir / f"{c.stem}.md.fail"
+        if not written.is_file():
+            results[c.number], differences[c.number] = "fail", "no Markdown written"
+        elif fail.is_file():
+            results[c.number] = "fail"
+            differences[c.number] = fail.read_text(encoding="utf-8", errors="replace").strip()
+        else:
+            results[c.number] = "exact" if written.read_bytes() == c.markdown else "normalised"
+    style = "canonical" if canonical else "recorded"
+    for c in cases:
+        if results[c.number] == "fail":
+            print(f"example {c.number} ({c.section}): {differences[c.number]}")
+    report(suite, cases, results, f"{subset}, round trip, {style} style", f"round trip ({style})")
+    population = [c for c in cases if plain(c.markdown)]
+    identical = sum(results[c.number] == "exact" for c in population)
+    rate = 100.0 * identical / len(population) if population else 0.0
+    print(f"{suite.name}: byte-identical ({style} style, no tab, no trailing space): "
+          f"{identical}/{len(population)} ({rate:.1f}%)")
+    for c in [c for c in cases if results[c.number] == "fail"][:limit]:
+        written = actual_dir / f"{c.stem}.md"
+        print(f"\nexample {c.number} ({c.section})\n--- markdown\n{c.markdown.decode('utf-8')}", end="")
+        if written.is_file():
+            print(f"--- written\n{written.read_bytes().decode('utf-8', errors='replace')}", end="")
 
 
 def show_failures(cases: list[Case], results: dict[int, str], actual_dir: Path, limit: int) -> None:
@@ -291,9 +340,13 @@ def main() -> int:
     parser.add_argument("--blocks-only", action="store_true", help="only the examples with no inline syntax")
     parser.add_argument("--self-test", action="store_true", help="the expected HTML against itself, normalised")
     parser.add_argument("--failures", type=int, default=0, metavar="N", help="show the first N failures with a diff")
+    parser.add_argument("--roundtrip", action="store_true", help="DIR holds a round trip's NNNN.md (and .fail) files")
+    parser.add_argument("--canonical", action="store_true", help="with --roundtrip: the writer used the canonical style")
     args = parser.parse_args()
     if args.self_test == (args.actual is not None):
         parser.error("give exactly one of --actual DIR and --self-test")
+    if args.canonical and not args.roundtrip:
+        parser.error("--canonical needs --roundtrip")
     suite = fixtures.SUITES[args.suite]
     cases = read_cases(suite)
     subset = ""
@@ -309,6 +362,9 @@ def main() -> int:
     actual_dir: Path = args.actual
     if not actual_dir.is_dir():
         parser.error(f"no directory {actual_dir}")
+    if args.roundtrip:
+        roundtrip(cases, actual_dir, canonical=args.canonical, subset=subset, suite=suite, limit=args.failures)
+        return 0
     results = {}
     for c in cases:
         path = actual_dir / f"{c.stem}.html"

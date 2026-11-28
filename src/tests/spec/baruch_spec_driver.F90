@@ -1,10 +1,10 @@
-!< BARUCH conformance driver: parse each Markdown fixture of a list, write the HTML rendered from it.
+!< BARUCH conformance driver: parse each Markdown fixture of a list, write the HTML rendered from it (or round-trip it).
 program baruch_spec_driver
-!< BARUCH conformance driver: parse each Markdown fixture of a list, write the HTML rendered from it.
+!< BARUCH conformance driver: parse each Markdown fixture of a list, write the HTML rendered from it (or round-trip it).
 !<
-!< Run by `scripts/spec.sh` (plan szaghi/BARUCH#1, step 1.4), never by hand:
+!< Run by `scripts/spec.sh` (plan szaghi/BARUCH#1, step 1.4; round trip, step 3.2), never by hand:
 !<
-!<    baruch_spec_driver [--extension NAME]... --list FILE
+!<    baruch_spec_driver [--extension NAME]... [--roundtrip [--canonical]] --list FILE
 !<
 !< `FILE` holds one example per line, `INPUT<TAB>OUTPUT`: the driver loads `INPUT` (`markdown_document%load_file`),
 !< parses it (`markdown_options%parse`, no extension enabled) and writes the rendered HTML to `OUTPUT` (stream access,
@@ -15,6 +15,12 @@ program baruch_spec_driver
 !<
 !< The HTML is the library's: `markdown_options%render_html_file`, a fragment (as the spec's examples are), with the
 !< options of the parse.
+!<
+!< With `--roundtrip` the driver writes no HTML: it parses the example, writes the tree back as Markdown
+!< (`markdown_options%write_markdown`, the recorded style, or the canonical one with `--canonical`) into `OUTPUT`,
+!< parses that Markdown and compares the two trees (`markdown_document%equal`). When they differ it writes the
+!< difference (the path of the first differing node and what differs) into `OUTPUT.fail`, after removing a stale one;
+!< `scripts/spec/compare.py --roundtrip` counts the examples with no `.fail` file.
 !<
 !< With no argument the driver does nothing and exits 0: it lives in `src/tests/spec/`, so the test modes build it into
 !< `exe/` with every compiler, and `scripts/run_tests.sh`, which runs every program of `exe/` with no argument, counts
@@ -30,6 +36,8 @@ character(:), allocatable :: record    !< One line of it.
 character(:), allocatable :: input     !< Markdown file of an example.
 character(:), allocatable :: output    !< HTML file of an example.
 character(:), allocatable :: errmsg    !< Message.
+logical                   :: roundtrip !< Round-trip the examples (no HTML).
+logical                   :: canonical !< Write them in the canonical style.
 integer                   :: a         !< Argument counter.
 integer                   :: i, j, t   !< Bounds of a record and of its tab.
 integer                   :: examples  !< Examples run.
@@ -38,6 +46,8 @@ integer(I4P)              :: stat      !< Status.
 
 if (command_argument_count() == 0) stop
 list_path = ''
+roundtrip = .false.
+canonical = .false.
 a = 1
 do while (a <= command_argument_count())
    call get_argument(a, arg)
@@ -46,6 +56,12 @@ do while (a <= command_argument_count())
       if (a == command_argument_count()) call usage('--list needs a file')
       call get_argument(a + 1, list_path)
       a = a + 2
+   case('--roundtrip')
+      roundtrip = .true.
+      a = a + 1
+   case('--canonical')
+      canonical = .true.
+      a = a + 1
    case('--extension')
       if (a == command_argument_count()) call usage('--extension needs a name')
       call get_argument(a + 1, arg)
@@ -55,6 +71,7 @@ do while (a <= command_argument_count())
    endselect
 enddo
 if (len(list_path) == 0) call usage('no --list given')
+if (canonical .and. .not. roundtrip) call usage('--canonical needs --roundtrip')
 call read_whole(list_path, list, stat, errmsg)
 if (stat /= 0) call usage('cannot read the list "'//list_path//'": '//errmsg)
 
@@ -76,7 +93,11 @@ do while (i <= len(list))
    input = record(:t-1)
    output = record(t+1:)
    examples = examples + 1
-   call run_example(input, output, stat, errmsg)
+   if (roundtrip) then
+      call roundtrip_example(input, output, stat, errmsg)
+   else
+      call run_example(input, output, stat, errmsg)
+   endif
    if (stat /= 0) then
       write(error_unit, '(A)') 'baruch_spec_driver: '//input//': '//errmsg
       failures = failures + 1
@@ -104,6 +125,54 @@ contains
    if (stat /= BARUCH_OK) return
    call options%render_html_file(doc, output, stat=stat, errmsg=errmsg)
    endsubroutine run_example
+
+   subroutine roundtrip_example(input, output, stat, errmsg)
+   !< Load and parse one example, write it as Markdown into its output file, parse that and compare the trees: a
+   !< difference goes into `OUTPUT.fail` (a difference is a result, not an error: `stat` stays 0).
+   character(*),              intent(in)  :: input      !< Markdown file.
+   character(*),              intent(in)  :: output     !< Markdown written.
+   integer(I4P),              intent(out) :: stat       !< Status.
+   character(:), allocatable, intent(out) :: errmsg     !< Message.
+   type(markdown_document)                :: doc        !< Document.
+   type(markdown_document)                :: again      !< The written Markdown, parsed.
+   type(markdown_options)                 :: options    !< Options: CommonMark, no extension.
+   character(:), allocatable              :: markdown   !< Markdown written.
+   character(:), allocatable              :: difference !< First difference.
+   character(256)                         :: iomsg      !< I/O message.
+   integer                                :: u          !< Unit.
+   integer                                :: ios        !< I/O status.
+   logical                                :: exists     !< A stale failure file exists.
+
+   errmsg = ''
+   call doc%load_file(input, stat=stat, errmsg=errmsg)
+   if (stat /= BARUCH_OK) return
+   call options%parse(doc, stat=stat, errmsg=errmsg)
+   if (stat /= BARUCH_OK) return
+   call options%write_markdown(doc, markdown, canonical=canonical, stat=stat, errmsg=errmsg)
+   if (stat /= BARUCH_OK) return
+   call options%write_markdown_file(doc, output, canonical=canonical, stat=stat, errmsg=errmsg)
+   if (stat /= BARUCH_OK) return
+   call again%load(markdown, stat=stat, errmsg=errmsg)
+   if (stat /= BARUCH_OK) return
+   call options%parse(again, stat=stat, errmsg=errmsg)
+   if (stat /= BARUCH_OK) return
+   inquire(file=output//'.fail', exist=exists)
+   if (exists) then
+      open(newunit=u, file=output//'.fail', status='old', iostat=ios)
+      if (ios == 0) close(u, status='delete')
+   endif
+   if (doc%equal(again, difference=difference)) return
+   open(newunit=u, file=output//'.fail', access='stream', form='unformatted', action='write', status='replace', &
+        iostat=ios, iomsg=iomsg)
+   if (ios == 0) then
+      write(u, iostat=ios, iomsg=iomsg) difference//char(10)
+      close(u)
+   endif
+   if (ios /= 0) then
+      stat = BARUCH_ERR_IO
+      errmsg = 'cannot write "'//output//'.fail": '//trim(iomsg)
+   endif
+   endsubroutine roundtrip_example
 
    subroutine get_argument(n, arg)
    !< Return a command-line argument, of any length.
@@ -147,8 +216,8 @@ contains
    character(*), intent(in) :: message !< What is wrong.
 
    write(error_unit, '(A)') 'baruch_spec_driver: '//message
-   write(error_unit, '(A)') 'usage: baruch_spec_driver [--extension NAME]... --list FILE   (FILE: one "INPUT<TAB>OUTPUT" '// &
-                            'per line)'
+   write(error_unit, '(A)') 'usage: baruch_spec_driver [--extension NAME]... [--roundtrip [--canonical]] --list FILE   '// &
+                            '(FILE: one "INPUT<TAB>OUTPUT" per line)'
    stop 2
    endsubroutine usage
 endprogram baruch_spec_driver

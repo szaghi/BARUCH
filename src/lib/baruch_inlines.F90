@@ -16,14 +16,15 @@ module baruch_inlines
 !<
 !< **One step** (`parse_inline`) looks at the byte at the cursor:
 !<
-!< - LF: a soft line break, or a hard one when two or more spaces end the line (they are not text); the next line's
-!<   leading spaces are skipped;
+!< - LF: a soft line break, or a hard one when two or more spaces end the line (they are not text; their number recorded,
+!<   `SLOT_LINEBREAK_FORM` and `SLOT_LINEBREAK_SPACES`); the next line's leading spaces are skipped;
 !< - `\`: before ASCII punctuation, that character as text; before LF, a hard line break; else a backslash;
 !< - `` ` ``: a code span when a backtick string of the same length closes it (else the opening string is text); its
 !<   content has line endings as spaces and one space stripped at both ends when it has one at both ends and is not
-!<   only spaces. Where each closing length was last seen is remembered, so a subject of unmatched backticks is
-!<   read in linear time (cmark's `backticks` array, here growing with the longest string met, so that a string of
-!<   any length can open a code span: cmark gives up above 1000 backticks);
+!<   only spaces (the strings' length recorded, `SLOT_CODE_TICKS`, and the content as written when it is not the
+!<   literal, `STRING_RAW`, for the writer). Where each closing length was last seen is remembered, so a subject of
+!<   unmatched backticks is read in linear time (cmark's `backticks` array, here growing with the longest string met,
+!<   so that a string of any length can open a code span: cmark gives up above 1000 backticks);
 !< - `&`: a character reference (`baruch_inlines_scan`), its UTF-8 bytes as text; else `&`;
 !< - `<`: a URI autolink, an email autolink (`NODE_LINK`, `LINK_AUTOLINK`, its text child), raw inline HTML (open and
 !<   closing tags, comments, processing instructions, declarations, CDATA: `NODE_HTML_INLINE`, verbatim); else `<`;
@@ -63,17 +64,17 @@ module baruch_inlines
 !< as cmark's). The look-ahead for a `[label]` is bounded by 999 characters.
 use penf,                only : I4P
 use baruch_document,     only : markdown_document, insert_after_trusted, insert_before_trusted
-use stringifor,          only : string
 use baruch_extension,    only : extension_slot
 use baruch_kinds_nodes,  only : NODE_PARAGRAPH, NODE_HEADING, NODE_TEXT, NODE_SOFTBREAK, NODE_LINEBREAK, NODE_CODE, &
                                 NODE_HTML_INLINE, NODE_EMPH, NODE_STRONG, NODE_LINK, NODE_IMAGE, SLOT_EMPHASIS_CHAR,  &
                                 SLOT_LINK_FORM, LINK_INLINE, LINK_FULL, LINK_COLLAPSED, LINK_SHORTCUT, LINK_AUTOLINK, &
-                                NODE_EXTENSION_FIRST
+                                NODE_EXTENSION_FIRST, SLOT_LINEBREAK_FORM, SLOT_LINEBREAK_SPACES, LINEBREAK_BACKSLASH,  &
+                                LINEBREAK_SPACES, SLOT_CODE_TICKS, STRING_RAW
 use baruch_blocks_scan,  only : BACKSLASH, is_ascii_punctuation, is_ascii_letter
 use baruch_blocks_definitions, only : scan_destination, scan_title, LABEL_MAX
 use baruch_inlines_scan, only : scan_reference, decode_references, unescape_string, scan_autolink_uri,            &
                                 scan_autolink_email, scan_html_tag, scan_html_comment, scan_processing_instruction, &
-                                scan_declaration, scan_cdata
+                                scan_declaration, scan_cdata, classify, code_content
 use baruch_references,   only : reference_map
 use baruch_status
 implicit none
@@ -611,6 +612,8 @@ contains
    if (ierr /= BARUCH_OK) return
    if (p%pos - first >= 2_I4P) then
       node = add_node(p, doc, NODE_LINEBREAK, first, p%pos, ierr, msg)
+      if (ierr == BARUCH_OK) call doc%set_int_slot(node, SLOT_LINEBREAK_FORM, LINEBREAK_SPACES, stat=ierr, errmsg=msg)
+      if (ierr == BARUCH_OK) call doc%set_int_slot(node, SLOT_LINEBREAK_SPACES, p%pos - first, stat=ierr, errmsg=msg)
    else
       node = add_node(p, doc, NODE_SOFTBREAK, p%pos, p%pos, ierr, msg)
    endif
@@ -636,6 +639,9 @@ contains
          call flush_text(p, doc, ierr, msg)
          if (ierr /= BARUCH_OK) return
          node = add_node(p, doc, NODE_LINEBREAK, p%pos, p%pos + 1_I4P, ierr, msg)
+         if (ierr == BARUCH_OK) call doc%set_int_slot(node, SLOT_LINEBREAK_FORM, LINEBREAK_BACKSLASH, stat=ierr, &
+                                                      errmsg=msg)
+         if (ierr /= BARUCH_OK) return
          p%pos = p%pos + 2_I4P
          call skip_spaces(p)
          return
@@ -671,6 +677,11 @@ contains
    if (ierr /= BARUCH_OK) return
    node = add_node(p, doc, NODE_CODE, first, closer + length - 1_I4P, ierr, msg)
    if (ierr == BARUCH_OK) call doc%set_literal(node, code_content(p%subj(p%pos:closer-1)), stat=ierr, errmsg=msg)
+   if (ierr == BARUCH_OK) call doc%set_int_slot(node, SLOT_CODE_TICKS, length, stat=ierr, errmsg=msg)
+   if (ierr == BARUCH_OK) then ! as written, when it is not the content: line endings, padding
+      if (len(doc%literal(node)) /= closer - p%pos .or. index(p%subj(p%pos:closer-1), LF) > 0) &
+         call doc%set_string_slot(node, STRING_RAW, p%subj(p%pos:closer-1), stat=ierr, errmsg=msg)
+   endif
    p%pos = closer + length
    endsubroutine handle_backticks
 
@@ -722,24 +733,6 @@ contains
    b(1:size(p%backticks)) = p%backticks
    call move_alloc(b, p%backticks)
    endsubroutine grow_backticks
-
-   pure function code_content(raw) result(content)
-   !< Return a code span's content: line endings as spaces, then one space removed at both ends when there is one at
-   !< both ends and the content is not only spaces.
-   character(*), intent(in)  :: raw     !< Bytes between the backtick strings.
-   character(:), allocatable :: content !< Content.
-   integer(I4P)              :: k       !< Position.
-   integer(I4P)              :: n       !< Length.
-
-   content = raw
-   n = len(content, kind=I4P)
-   do k=1, n
-      if (content(k:k) == LF) content(k:k) = ' '
-   enddo
-   if (n >= 2_I4P) then
-      if (content(1:1) == ' ' .and. content(n:n) == ' ' .and. verify(content, ' ') > 0) content = content(2:n-1)
-   endif
-   endfunction code_content
 
    subroutine handle_entity(p)
    !< An `&`: a character reference as its UTF-8 bytes, or `&`.
@@ -929,38 +922,6 @@ contains
    first = i
    if (i > len(text, kind=I4P)) first = 0_I4P
    endfunction char_at
-
-   subroutine classify(text, i, space, punct)
-   !< Whether the UTF-8 character at `i` is Unicode White_Space and whether it is Unicode punctuation (General_Category
-   !< P or S), by StringiFor's `is_space(unicode=.true.)` and `is_punct(unicode=.true.)`; no character (`i` 0, the
-   !< start or the end of the subject) counts as white space.
-   character(*), intent(in)  :: text  !< Text, well-formed UTF-8.
-   integer(I4P), intent(in)  :: i     !< First byte of the character, 0 for none.
-   logical,      intent(out) :: space !< White space.
-   logical,      intent(out) :: punct !< Punctuation.
-   type(string)              :: u     !< The character.
-   integer(I4P)              :: b     !< Its lead byte.
-   integer(I4P)              :: n     !< Its bytes.
-
-   space = .true.
-   punct = .false.
-   if (i < 1_I4P) return
-   b = iachar(text(i:i))
-   if (b < 128_I4P) then
-      space = text(i:i) == ' ' .or. (b >= 9_I4P .and. b <= 13_I4P)
-      punct = is_ascii_punctuation(text(i:i))
-      return
-   elseif (b >= 240_I4P) then
-      n = 4_I4P
-   elseif (b >= 224_I4P) then
-      n = 3_I4P
-   else
-      n = 2_I4P
-   endif
-   u = text(i:min(len(text, kind=I4P), i + n - 1_I4P))
-   space = u%is_space(unicode=.true.)
-   punct = u%is_punct(unicode=.true.)
-   endsubroutine classify
 
    subroutine push_delimiter(p, node, c, first, count, can_open, can_close, owner)
    !< Push a delimiter run on the delimiter stack.

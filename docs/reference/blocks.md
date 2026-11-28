@@ -116,7 +116,7 @@ line gets the tab's remaining columns as spaces (`- foo`, a blank line, two tabs
 ## Style slots
 
 What the parser records of how a block was written, in the integer slots of [the slot table](/reference/document#the-slot-table)
-(0 means "not recorded"). The tree writer (plan step 3.2) writes a block back in this style; equality (step 3.1)
+(0 means "not recorded"). The [tree writer](/reference/writer) writes a block back in this style; equality (step 3.1)
 ignores it.
 
 | Kind | Slot | Value |

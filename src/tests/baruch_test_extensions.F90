@@ -12,7 +12,7 @@ module baruch_test_extensions
 !< - `clash_extension` ("clash"): registers kind 1001 under another name;
 !< - `math_extension` ("math"): an inline kind `math` (1005), never parsed (no inline hooks before step 2.5), built by
 !<   hand: the walk reports it as a text, the HTML is `<span class="math">` around its literal; `mode` 1 breaks the
-!<   `walk_event` contract (an event that is not one), mode 2 makes `write_html` fail;
+!<   `walk_event` contract (an event that is not one), mode 2 makes `write_html` fail, mode 3 `write_markdown`;
 !< - `rule_extension` ("rule"): writes the core's thematic breaks as `<hr class="rule" />`;
 !< - `xvar_extension` ("xvar"): an inline trigger, `%`: `%name%` (letters, digits, `_`) is an `xvar` (kind 1006, inline)
 !<   whose literal is the name; its `post_process` numbers them in document order (attribute `index`) and unlinks the
@@ -106,7 +106,8 @@ endtype clash_extension
 
 type, extends(markdown_extension) :: math_extension
    !< Inline math, built by hand: a text for the walk, a span of class math in HTML.
-   integer(I4P) :: mode = 0_I4P !< 0 well behaved, 1 a walk event that is not one, 2 `write_html` fails.
+   integer(I4P) :: mode = 0_I4P !< 0 well behaved, 1 a walk event that is not one, 2 `write_html` fails, 3
+                                !< `write_markdown` fails.
    contains
       procedure, pass(self) :: name           => math_name
       procedure, pass(self) :: register_kinds => math_register_kinds
@@ -432,6 +433,7 @@ contains
    character(:), allocatable, intent(inout) :: errmsg   !< Message.
    markdown = ''
    handled = doc%node_kind(node) == KIND_NOTE
+   if (handled .and. entering) markdown = '!> ' ! the prefix of its children's lines
    endsubroutine note_write_markdown
 
    subroutine note_write_html(self, doc, node, entering, html, handled, stat, errmsg)
@@ -691,6 +693,10 @@ contains
    markdown = ''
    handled = doc%node_kind(node) == KIND_MATH
    if (handled .and. entering) markdown = '$'//doc%literal(node)//'$'
+   if (handled .and. self%mode == 3_I4P) then
+      stat = BARUCH_ERR_ARGUMENT
+      errmsg = 'math refuses to be written'
+   endif
    endsubroutine math_write_markdown
 
    subroutine math_walk_event(self, doc, node, entering, event, handled)
@@ -1031,8 +1037,7 @@ contains
    character(:), allocatable, intent(inout) :: errmsg   !< Message.
    handled = doc%node_kind(node) == KIND_TITLE
    markdown = ''
-   if (handled) markdown = merge('@@ ', LF//'  ', entering)
-   if (handled) markdown = trim(markdown)
+   if (handled .and. entering) markdown = '@@ ' ! the prefix of its inline content's line
    endsubroutine title_write_markdown
 
    ! broken inline

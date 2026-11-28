@@ -10,7 +10,8 @@ module baruch
 !< `BARUCH_ERR_*`). `markdown_options%parse` builds the CommonMark block structure (`baruch_blocks`) and the inline
 !< content of its paragraphs and headings (`baruch_inlines`), `markdown_options%render_html` writes a tree as HTML
 !< (`baruch_html`), `markdown_options%walk` reads it as events (`baruch_walk`), `markdown_document%equal` compares two
-!< trees by meaning (submodule `baruch_equal`); the writers are added behind this module, step by step.
+!< trees by meaning (submodule `baruch_equal`), `markdown_options%write_markdown` writes a tree back as Markdown
+!< (`baruch_writer`); the streaming writer is added behind this module in a later step.
 !<
 !< Kinds come from PENF and text from StringiFor, used here so that the library archive holds them; neither is
 !< re-exported, a client uses them directly.
@@ -33,9 +34,12 @@ use baruch_kinds_nodes, only : NODE_NONE,                                       
                                SLOT_LIST_TYPE, SLOT_LIST_START, SLOT_LIST_TIGHT, SLOT_LIST_MARKER,                 &
                                SLOT_CODE_FORM, SLOT_CODE_FENCE_CHAR, SLOT_CODE_FENCE_LENGTH,                       &
                                SLOT_BREAK_CHAR, SLOT_EMPHASIS_CHAR, SLOT_LINK_FORM,                                &
+                               SLOT_LINEBREAK_FORM, SLOT_LINEBREAK_SPACES, SLOT_CODE_TICKS,                        &
                                STRING_LITERAL, STRING_INFO, STRING_DESTINATION, STRING_TITLE, STRING_LABEL,        &
+                               STRING_RAW,                                                                         &
                                HEADING_ATX, HEADING_SETEXT, LIST_BULLET, LIST_ORDERED, CODE_INDENTED, CODE_FENCED, &
-                               LINK_INLINE, LINK_FULL, LINK_COLLAPSED, LINK_SHORTCUT, LINK_AUTOLINK
+                               LINK_INLINE, LINK_FULL, LINK_COLLAPSED, LINK_SHORTCUT, LINK_AUTOLINK,               &
+                               LINEBREAK_BACKSLASH, LINEBREAK_SPACES
 use baruch_walk,        only : EVENT_NONE, EVENT_ENTER_BLOCK, EVENT_LEAVE_BLOCK, EVENT_ENTER_SPAN, EVENT_LEAVE_SPAN, &
                                EVENT_TEXT
 use baruch_status,      only : BARUCH_OK, BARUCH_ERR_ARGUMENT, BARUCH_ERR_NODE, BARUCH_ERR_KIND, BARUCH_ERR_LINK, &
@@ -63,9 +67,11 @@ public :: SLOT_HEADING_LEVEL, SLOT_HEADING_FORM, SLOT_HEADING_CLOSING
 public :: SLOT_LIST_TYPE, SLOT_LIST_START, SLOT_LIST_TIGHT, SLOT_LIST_MARKER
 public :: SLOT_CODE_FORM, SLOT_CODE_FENCE_CHAR, SLOT_CODE_FENCE_LENGTH
 public :: SLOT_BREAK_CHAR, SLOT_EMPHASIS_CHAR, SLOT_LINK_FORM
-public :: STRING_LITERAL, STRING_INFO, STRING_DESTINATION, STRING_TITLE, STRING_LABEL
+public :: SLOT_LINEBREAK_FORM, SLOT_LINEBREAK_SPACES, SLOT_CODE_TICKS
+public :: STRING_LITERAL, STRING_INFO, STRING_DESTINATION, STRING_TITLE, STRING_LABEL, STRING_RAW
 public :: HEADING_ATX, HEADING_SETEXT, LIST_BULLET, LIST_ORDERED, CODE_INDENTED, CODE_FENCED
 public :: LINK_INLINE, LINK_FULL, LINK_COLLAPSED, LINK_SHORTCUT, LINK_AUTOLINK
+public :: LINEBREAK_BACKSLASH, LINEBREAK_SPACES
 ! walk events
 public :: EVENT_NONE, EVENT_ENTER_BLOCK, EVENT_LEAVE_BLOCK, EVENT_ENTER_SPAN, EVENT_LEAVE_SPAN, EVENT_TEXT
 ! status codes

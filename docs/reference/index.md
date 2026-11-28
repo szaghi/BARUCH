@@ -18,19 +18,20 @@ the code; each public entity gets its row in the step that adds it. The rules ev
 | `markdown_options` | type | what a parse does: the extensions registered and enabled by name; `parse` | [Extensions](/reference/extensions#the-options), [Blocks](/reference/blocks#parsing), [Inlines](/reference/inlines) |
 | | | `render_html`, `render_html_file`: the tree as HTML, a fragment or a standalone page | [HTML](/reference/html) |
 | | | `walk`: the tree as events, one per call | [Walk](/reference/walk) |
+| | | `write_markdown`, `write_markdown_file`: the tree as Markdown, recorded or canonical style | [Writer](/reference/writer) |
 | `EVENT_*` | constants | the walk's events: enter and leave a block or a span, text | [Walk](/reference/walk#events) |
 | `markdown_extension` | abstract type | the extension interface: the hooks and their defaults | [Extensions](/reference/extensions#the-hooks) |
 | `BLOCK_*`, `CONTENT_*` | constants | what the block hooks answer | [Extensions](/reference/extensions#constants) |
 | `NODE_*` | constants | the node kinds, one per CommonMark node type, and the ranges | [Kinds](/reference/document#kinds) |
 | `NODE_INT_SLOTS`, `NODE_STRING_SLOTS`, `SLOT_*`, `STRING_*` | constants | the slot layout per kind | [The slot table](/reference/document#the-slot-table) |
-| `HEADING_*`, `LIST_*`, `CODE_*`, `LINK_*` | constants | the values of the style and type slots | [The slot table](/reference/document#the-slot-table) |
+| `HEADING_*`, `LIST_*`, `CODE_*`, `LINK_*`, `LINEBREAK_*` | constants | the values of the style and type slots | [The slot table](/reference/document#the-slot-table) |
 | `BARUCH_OK`, `BARUCH_ERR_*` | constants | the status codes | [Errors](/reference/document#errors) |
 
 Planned, with their steps:
 
 | Name | Kind | | Plan step |
 |---|---|---|---|
-| `markdown_options` | type | more of what a write does: the line ending, canonical output | 3.2 |
+| `markdown_options` | type | more of what a write does: the line ending (CRLF) | 4.1 |
 | `markdown_writer` | type | the streaming writer | 4.1 |
 
 The procedures are type-bound methods of these types.
@@ -51,7 +52,7 @@ The procedures are type-bound methods of these types.
 | | [Links and references](/reference/links) | links, images, reference definitions, label matching, the forms recorded | 2.4 |
 | | [Extensions](/reference/extensions#inline-triggers) | the inline hooks: triggers, delimiter participation, inline blocks, post-processing | 2.5 |
 | 3. The tree writer | [Equality](/reference/equality) | what tree equality compares and ignores, the semantic fields per kind, the path | 3.1 |
-| | Writer | recorded style, canonical mode, escaping | 3.2 |
+| | [Writer](/reference/writer) | recorded style, canonical mode, escaping, extensions' hooks; [round trip](/reference/conformance#round-trip) counts | 3.2 |
 | | Conformance | fuzzing | 3.3 |
 | 4. The streaming writer | Streaming writer | containers, leaf blocks, tables, helpers | 4.1 |
 | 5. GFM extensions | GFM | tables, strikethrough, task lists, extended autolinks, alerts, footnotes | 5.1-5.6 |

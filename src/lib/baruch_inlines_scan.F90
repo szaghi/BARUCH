@@ -19,13 +19,14 @@ module baruch_inlines_scan
 !<   whether the end exists at all from there: the inline parser remembers a failed search, so that a subject full of
 !<   `<!--` is read in linear time (cmark's flags).
 use penf,               only : I4P
+use stringifor,         only : string
 use baruch_blocks_scan, only : BACKSLASH, is_ascii_punctuation, is_ascii_letter, is_ascii_digit, scan_open_tag, &
                                scan_closing_tag
 use baruch_entities,    only : entity_lookup, entity_utf8, ENTITY_NAME_MAX
 implicit none
 private
 public :: REPLACEMENT_UTF8
-public :: is_ascii_alnum, is_ascii_space
+public :: is_ascii_alnum, is_ascii_space, classify, code_content
 public :: utf8_encode, scan_reference, unescape_string, decode_references
 public :: scan_autolink_uri, scan_autolink_email
 public :: scan_html_comment, scan_processing_instruction, scan_declaration, scan_cdata, scan_html_tag
@@ -56,6 +57,56 @@ contains
 
    is = c == ' ' .or. (iachar(c) >= 9 .and. iachar(c) <= 13)
    endfunction is_ascii_space
+
+   subroutine classify(text, i, space, punct)
+   !< Whether the UTF-8 character at `i` is Unicode White_Space and whether it is Unicode punctuation (General_Category
+   !< P or S), by StringiFor's `is_space(unicode=.true.)` and `is_punct(unicode=.true.)`; no character (`i` 0, the
+   !< start or the end of the subject) counts as white space.
+   character(*), intent(in)  :: text  !< Text, well-formed UTF-8.
+   integer(I4P), intent(in)  :: i     !< First byte of the character, 0 for none.
+   logical,      intent(out) :: space !< White space.
+   logical,      intent(out) :: punct !< Punctuation.
+   type(string)              :: u     !< The character.
+   integer(I4P)              :: b     !< Its lead byte.
+   integer(I4P)              :: n     !< Its bytes.
+
+   space = .true.
+   punct = .false.
+   if (i < 1_I4P) return
+   b = iachar(text(i:i))
+   if (b < 128_I4P) then
+      space = text(i:i) == ' ' .or. (b >= 9_I4P .and. b <= 13_I4P)
+      punct = is_ascii_punctuation(text(i:i))
+      return
+   elseif (b >= 240_I4P) then
+      n = 4_I4P
+   elseif (b >= 224_I4P) then
+      n = 3_I4P
+   else
+      n = 2_I4P
+   endif
+   u = text(i:min(len(text, kind=I4P), i + n - 1_I4P))
+   space = u%is_space(unicode=.true.)
+   punct = u%is_punct(unicode=.true.)
+   endsubroutine classify
+
+   pure function code_content(raw) result(content)
+   !< Return a code span's content: line endings as spaces, then one space removed at both ends when there is one at
+   !< both ends and the content is not only spaces.
+   character(*), intent(in)  :: raw     !< Bytes between the backtick strings.
+   character(:), allocatable :: content !< Content.
+   integer(I4P)              :: k       !< Position.
+   integer(I4P)              :: n       !< Length.
+
+   content = raw
+   n = len(content, kind=I4P)
+   do k=1, n
+      if (content(k:k) == achar(10)) content(k:k) = ' '
+   enddo
+   if (n >= 2_I4P) then
+      if (content(1:1) == ' ' .and. content(n:n) == ' ' .and. verify(content, ' ') > 0) content = content(2:n-1)
+   endif
+   endfunction code_content
 
    pure function utf8_encode(code) result(bytes)
    !< Return the UTF-8 bytes of a code point; U+FFFD for one that is not a Unicode scalar value (negative, a

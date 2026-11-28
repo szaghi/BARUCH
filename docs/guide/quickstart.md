@@ -2,8 +2,8 @@
 
 The block structure is read ([tutorial chapter 3](/manual/tutorial/03-read)) and written as HTML
 ([tutorial chapter 4](/manual/tutorial/04-render)), with the inline content
-([tutorial chapter 5](/manual/tutorial/05-inlines)): the reader passes the 652 CommonMark examples; the writers are
-not written yet
+([tutorial chapter 5](/manual/tutorial/05-inlines)): the reader passes the 652 CommonMark examples, and a tree is
+written back as Markdown ([tutorial chapter 6](/manual/tutorial/06-write)); the streaming writer is not written yet
 ([About](/guide/)). This page shows how a program uses the library today, and grows with it.
 
 ## A first program

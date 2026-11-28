@@ -1,0 +1,5 @@
+$ edit_heading; diff guide.md guide-new.md
+7c7
+< Running
+---
+> Running the solver

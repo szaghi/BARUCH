@@ -16,5 +16,5 @@ makes it possible; the ones not linked below are not written yet.
 | [3. Read a document](./03-read) | parse a file, inspect the tree: what each block means and how it was written | 1.5 |
 | [4. Render HTML](./04-render) | an HTML fragment and a standalone page; the walk's events | 1.6 |
 | [5. Inline content](./05-inlines) | code spans, autolinks, raw HTML, references, line breaks, emphasis, links and images in the tree | 2.3, 2.4 |
-| Edit and write back | change a parsed document and write it, in its own style or canonical | 3.2 |
+| [6. Edit and write back](./06-write) | change a parsed document and write it, in its own style or canonical | 3.2 |
 | A run report | a solver-like loop writing its report while it runs, with the streaming writer | 4.1 (final at G4) |

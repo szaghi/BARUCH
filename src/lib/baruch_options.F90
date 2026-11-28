@@ -16,8 +16,9 @@ module baruch_options
 !< The options also read a parsed tree back, because what an extension's node looks like from outside is its
 !< extension's to say: `render_html` (`baruch_html`: the HTML, a fragment or a standalone page, into a `character`, a
 !< StringiFor `string` or an open unit; `render_html_file` into a file) asks the enabled extensions' `write_html` hooks,
-!< and `walk` (`baruch_walk`: one event per call, the caller holding the state) their `walk_event` hooks. The line
-!< ending and the canonical output of the writer join the options in later steps.
+!< and `walk` (`baruch_walk`: one event per call, the caller holding the state) their `walk_event` hooks;
+!< `write_markdown` (`baruch_writer`: the tree as Markdown, in the recorded or the canonical style, into the same sinks;
+!< `write_markdown_file` into a file) their `write_markdown` hooks. The line ending joins the options in a later step.
 use penf,             only : I4P
 use stringifor,       only : string
 use baruch_document,  only : markdown_document
@@ -25,6 +26,7 @@ use baruch_extension, only : markdown_extension, extension_slot
 use baruch_blocks,    only : parse_blocks
 use baruch_inlines,   only : parse_inlines
 use baruch_html,      only : render_html_document
+use baruch_writer,    only : write_markdown_document
 use baruch_walk,      only : walk_step
 use baruch_status
 implicit none
@@ -51,9 +53,15 @@ type :: markdown_options
       generic               :: render_html => render_html_character, render_html_string, render_html_unit !< As HTML.
       procedure, pass(self) :: render_html_file   !< Render a document as HTML into a file.
       procedure, pass(self) :: walk               !< Advance a walk of a document's tree by one event.
+      generic               :: write_markdown => write_markdown_character, write_markdown_string, &
+                                                 write_markdown_unit !< Write a document's tree as Markdown.
+      procedure, pass(self) :: write_markdown_file !< Write a document's tree as Markdown into a file.
       procedure, pass(self), private :: render_html_character !< Render as HTML into a `character`.
       procedure, pass(self), private :: render_html_string    !< Render as HTML into a `string`.
       procedure, pass(self), private :: render_html_unit      !< Render as HTML into an open unit.
+      procedure, pass(self), private :: write_markdown_character !< Write as Markdown into a `character`.
+      procedure, pass(self), private :: write_markdown_string    !< Write as Markdown into a `string`.
+      procedure, pass(self), private :: write_markdown_unit      !< Write as Markdown into an open unit.
       procedure, pass(self), private :: find      !< Return the slot of an extension by name, 0 if none.
       procedure, pass(self), private :: post_process !< Call the enabled extensions' post-process hooks.
       procedure, pass(self), private :: set_state !< Enable or disable an extension by name.
@@ -411,6 +419,111 @@ contains
       call status_ok(stat, errmsg)
    endif
    endsubroutine walk
+
+   subroutine write_markdown_character(self, doc, markdown, canonical, stat, errmsg)
+   !< Write a document's tree as Markdown, with the enabled extensions (`baruch_writer`): in the style the parser
+   !< recorded (default) or, with `canonical = .true.`, in the canonical style. What it writes, `parse` reads back to the
+   !< same tree. A nonzero `stat` comes from an extension's `write_markdown` hook; `markdown` then holds what was written
+   !< before it.
+   class(markdown_options),   intent(in)            :: self      !< Options.
+   type(markdown_document),   intent(in)            :: doc       !< Document.
+   character(:), allocatable, intent(out)           :: markdown  !< Markdown.
+   logical,                   intent(in),  optional :: canonical !< Ignore the recorded style (default false).
+   integer(I4P),              intent(out), optional :: stat      !< Status.
+   character(:), allocatable, intent(out), optional :: errmsg    !< Message.
+   integer(I4P)                                     :: ierr      !< Status.
+   character(:), allocatable                        :: msg       !< Message.
+   type(extension_slot)                             :: empty(0)  !< No extension.
+   logical                                          :: canon     !< Canonical.
+
+   canon = .false.
+   if (present(canonical)) canon = canonical
+   msg = ''
+   if (self%slots_used > 0_I4P) then
+      call write_markdown_document(doc, self%slots_(1:self%slots_used), canon, markdown, ierr, msg)
+   else
+      call write_markdown_document(doc, empty, canon, markdown, ierr, msg)
+   endif
+   if (ierr /= BARUCH_OK) then
+      call status_error(ierr, msg, stat, errmsg)
+   else
+      call status_ok(stat, errmsg)
+   endif
+   endsubroutine write_markdown_character
+
+   subroutine write_markdown_string(self, doc, markdown, canonical, stat, errmsg)
+   !< Write a document's tree as Markdown into a StringiFor `string`; as the `character` form.
+   class(markdown_options),   intent(in)            :: self      !< Options.
+   type(markdown_document),   intent(in)            :: doc       !< Document.
+   type(string),              intent(out)           :: markdown  !< Markdown.
+   logical,                   intent(in),  optional :: canonical !< Ignore the recorded style (default false).
+   integer(I4P),              intent(out), optional :: stat      !< Status.
+   character(:), allocatable, intent(out), optional :: errmsg    !< Message.
+   character(:), allocatable                        :: text      !< Markdown.
+
+   call self%write_markdown_character(doc, text, canonical=canonical, stat=stat, errmsg=errmsg)
+   markdown = text
+   endsubroutine write_markdown_string
+
+   subroutine write_markdown_unit(self, doc, unit, canonical, stat, errmsg)
+   !< Write a document's tree as Markdown into a unit the caller opened for writing, as `render_html` does: a formatted
+   !< unit gets one record per line, an unformatted stream unit the bytes; a unit that cannot take them gives
+   !< `BARUCH_ERR_IO`.
+   class(markdown_options),   intent(in)            :: self      !< Options.
+   type(markdown_document),   intent(in)            :: doc       !< Document.
+   integer,                   intent(in)            :: unit      !< Unit, open for writing.
+   logical,                   intent(in),  optional :: canonical !< Ignore the recorded style (default false).
+   integer(I4P),              intent(out), optional :: stat      !< Status.
+   character(:), allocatable, intent(out), optional :: errmsg    !< Message.
+   character(:), allocatable                        :: text      !< Markdown.
+   integer(I4P)                                     :: ierr      !< Status.
+   character(:), allocatable                        :: msg       !< Message.
+
+   call self%write_markdown_character(doc, text, canonical=canonical, stat=ierr, errmsg=msg)
+   if (ierr == BARUCH_OK) call write_unit(unit, text, 'markdown_options%write_markdown', ierr, msg)
+   if (ierr /= BARUCH_OK) then
+      call status_error(ierr, msg, stat, errmsg)
+   else
+      call status_ok(stat, errmsg)
+   endif
+   endsubroutine write_markdown_unit
+
+   subroutine write_markdown_file(self, doc, path, canonical, stat, errmsg)
+   !< Write a document's tree as Markdown into a file, created or replaced, byte for byte (stream access). A file that
+   !< cannot be opened or written gives `BARUCH_ERR_IO` with the processor's message.
+   class(markdown_options),   intent(in)            :: self      !< Options.
+   type(markdown_document),   intent(in)            :: doc       !< Document.
+   character(*),              intent(in)            :: path      !< File.
+   logical,                   intent(in),  optional :: canonical !< Ignore the recorded style (default false).
+   integer(I4P),              intent(out), optional :: stat      !< Status.
+   character(:), allocatable, intent(out), optional :: errmsg    !< Message.
+   character(:), allocatable                        :: text      !< Markdown.
+   integer(I4P)                                     :: ierr      !< Status.
+   character(:), allocatable                        :: msg       !< Message.
+   character(512)                                   :: iomsg     !< I/O message.
+   integer                                          :: u         !< Unit.
+   integer                                          :: ios       !< I/O status.
+
+   call self%write_markdown_character(doc, text, canonical=canonical, stat=ierr, errmsg=msg)
+   if (ierr == BARUCH_OK) then
+      iomsg = ''
+      open(newunit=u, file=path, access='stream', form='unformatted', action='write', status='replace', iostat=ios, &
+           iomsg=iomsg)
+      if (ios == 0) then
+         write(u, iostat=ios, iomsg=iomsg) text
+         close(u)
+      endif
+      if (ios /= 0) then
+         ierr = BARUCH_ERR_IO
+         msg = 'markdown_options%write_markdown_file: cannot write "'//path//'": '//trim(iomsg)
+      endif
+   endif
+   if (ierr /= BARUCH_OK) then
+      call status_error(ierr, msg, stat, errmsg)
+   else
+      call status_ok(stat, errmsg)
+   endif
+   endsubroutine write_markdown_file
 
    ! private
    function find(self, name) result(s)

@@ -42,10 +42,10 @@ as they hide emphasis.
 | Kind | Written as | Fields | Span |
 |---|---|---|---|
 | `NODE_TEXT` | any text: plain characters, backslash escapes, character references, characters that open nothing | `literal`: the text as it reads (escapes and references decoded) | the source bytes, escapes and references as written |
-| `NODE_CODE` | `` `code` ``: a backtick string, the content, a backtick string of the same length | `literal`: the content (line endings as spaces, one space stripped at both ends, see below) | the backtick strings included |
+| `NODE_CODE` | `` `code` ``: a backtick string, the content, a backtick string of the same length | `literal`: the content (line endings as spaces, one space stripped at both ends, see below); `SLOT_CODE_TICKS` (style): the backticks of the strings; `STRING_RAW` (style): the content as written, when it is not the literal | the backtick strings included |
 | `NODE_HTML_INLINE` | an open or closing tag, a comment, a processing instruction, a declaration, a CDATA section | `literal`: the bytes as written (line endings LF) | the HTML |
 | `NODE_LINK` (autolink) | `<scheme:...>`, `<address@domain>` | `destination`: the URL, or `mailto:` and the address, references decoded; `title` empty; `SLOT_LINK_FORM` = `LINK_AUTOLINK`; one `NODE_TEXT` child, the URL or the address | `<` to `>` (its text: inside them) |
-| `NODE_LINEBREAK` | two or more spaces, or a backslash, then a line ending | none | the spaces (or the backslash) and the line ending |
+| `NODE_LINEBREAK` | two or more spaces, or a backslash, then a line ending | `SLOT_LINEBREAK_FORM` (style): `LINEBREAK_SPACES` or `LINEBREAK_BACKSLASH`; `SLOT_LINEBREAK_SPACES` (style): the spaces | the spaces (or the backslash) and the line ending |
 | `NODE_SOFTBREAK` | a line ending | none | the line ending's first byte |
 | `NODE_EMPH` | `*text*`, `_text_` | `SLOT_EMPHASIS_CHAR` (style): `*` or `_` (`iachar`); children: the emphasised content | the delimiters included |
 | `NODE_STRONG` | `**text**`, `__text__` | as emphasis | the delimiters included |
@@ -77,7 +77,9 @@ Text holds what the source means, its span what was written.
 A backtick string opens a code span, closed by the next backtick string of the **same length**; with none, the opening
 string is text and the parse goes on after it. The content: line endings become spaces, then, if it begins **and**
 ends with a space and is not only spaces, one space is removed at each end (``` `` `x` `` ``` holds `` `x` ``). Nothing
-else is processed: `` `\*` `` holds `\*`.
+else is processed: `` `\*` `` holds `\*`. The style is recorded for the [writer](/reference/writer): the length of the
+backtick strings (`SLOT_CODE_TICKS`) and, when the literal is not what was written between them (a line ending, the
+stripped spaces), the content as written (`STRING_RAW`).
 
 ### Autolinks
 

@@ -10,8 +10,9 @@ hold the extensions (`markdown_extension`, `markdown_options`, [reference](/refe
 block parser, which records the source style and calls the extensions' block hooks ([reference](/reference/blocks)),
 the inline parser ([reference](/reference/inlines), [links](/reference/links)), the HTML renderer
 ([reference](/reference/html)) and the event walk ([reference](/reference/walk)), and the conformance harness that
-runs the 652 CommonMark examples, all passing ([reference](/reference/conformance)); the writers are not written
-yet. This page
+runs the 652 CommonMark examples, all passing ([reference](/reference/conformance)), and the tree writer, whose output
+reads back to the same tree on all 652 ([reference](/reference/writer)); the streaming writer is not written yet. This
+page
 states the design the code is being written to: everything below is **planned** unless it says otherwise. The plan,
 step by step, is [szaghi/BARUCH#1](https://github.com/szaghi/BARUCH/issues/1).
 :::
@@ -23,8 +24,9 @@ step by step, is [szaghi/BARUCH#1](https://github.com/szaghi/BARUCH/issues/1).
   ([Blocks](/reference/blocks)), the inline content of each block second ([Inlines](/reference/inlines)), as the specification describes it.
 - **HTML renderer** (written, [HTML](/reference/html)): an HTML fragment by default (no `<html>` wrapper, no external
   CSS or JavaScript, ready to embed in a page), a standalone document on option.
-- **Tree writer** (planned): the tree back to Markdown. The round trip is semantic: re-reading what BARUCH writes gives
-  the same tree, not necessarily the same bytes.
+- **Tree writer** (written, [Writer](/reference/writer)): the tree back to Markdown, in the style it was read in or in a
+  canonical one. The round trip is semantic: re-reading what BARUCH writes gives the same tree, not necessarily the
+  same bytes (652/652 in both styles at plan step 3.2).
 - **Streaming writer** (planned): Markdown written block by block, with no tree, for the reports a program writes
   while it runs.
 - **Extensions** (planned): the GitHub Flavored Markdown group, then the VitePress syntax, all built through one public

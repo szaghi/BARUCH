@@ -127,8 +127,8 @@ kind stores its own integers.
 ### The slot table
 
 The integer slots hold the meaning first and the source style after: [equality](/reference/equality) compares the
-semantic ones, the writer (step 3.2) reuses the style ones. A style slot left at 0 is "not recorded": the writer is canonical
-there. Characters are stored as their ASCII code, `iachar`.
+semantic ones, the [writer](/reference/writer) reuses the style ones. A style slot left at 0 is "not recorded": the
+writer is canonical there. Characters are stored as their ASCII code, `iachar`.
 
 | Kind | Integer slots | String slots |
 |---|---|---|
@@ -139,14 +139,18 @@ there. Characters are stored as their ASCII code, `iachar`.
 | emph, strong | 1 `SLOT_EMPHASIS_CHAR` (style): `*` or `_` | |
 | link, image | 1 `SLOT_LINK_FORM` (style): `LINK_INLINE`, `LINK_FULL`, `LINK_COLLAPSED`, `LINK_SHORTCUT`, `LINK_AUTOLINK` | 1 `STRING_DESTINATION`<br>2 `STRING_TITLE`<br>3 `STRING_LABEL` |
 | link_reference_definition | | 1 `STRING_DESTINATION`<br>2 `STRING_TITLE`<br>3 `STRING_LABEL` |
-| text, code, html_inline, html_block | | 1 `STRING_LITERAL` |
+| linebreak | 1 `SLOT_LINEBREAK_FORM` (style): `LINEBREAK_BACKSLASH`, `LINEBREAK_SPACES`<br>2 `SLOT_LINEBREAK_SPACES` (style): the spaces before the line ending | |
+| code | 1 `SLOT_CODE_TICKS` (style): backticks of the delimiters | 1 `STRING_LITERAL`<br>2 `STRING_RAW` (style): the content as written (line endings, padding spaces), when it is not the literal |
+| text, html_inline, html_block | | 1 `STRING_LITERAL` |
 | extension kinds | the extension's own | 1 `STRING_LITERAL` by convention, the rest the extension's own |
-| document, block_quote, item, paragraph, softbreak, linebreak | | |
+| document, block_quote, item, paragraph, softbreak | | |
 
 Slots no constant names are free. The block parser records the style slots above and no other
 ([Blocks](/reference/blocks#style-slots)); the inline parser records `SLOT_EMPHASIS_CHAR` of emphasis and strong
 emphasis ([Inlines](/reference/inlines#emphasis)), `SLOT_LINK_FORM` of every link and image and, for the three
-reference forms, the label as written in `STRING_LABEL` ([Links and references](/reference/links#the-form-and-the-label)).
+reference forms, the label as written in `STRING_LABEL` ([Links and references](/reference/links#the-form-and-the-label)),
+the form of a hard line break (`SLOT_LINEBREAK_FORM`, `SLOT_LINEBREAK_SPACES`) and a code span's delimiters and content
+as written (`SLOT_CODE_TICKS`, `STRING_RAW`) ([Inlines](/reference/inlines)).
 
 ## Typed accessors
 

@@ -55,6 +55,33 @@ Reference: [Links and references](/reference/links), [Walk](/reference/walk). Th
 
 <<< @/examples/snippets/list_links.f90
 
+## Change a heading with a small diff
+
+A page written by hand, in its author's style (`guide.md`: setext headings, `+` bullets, `1)` with two spaces, a `~~~`
+fence, `___`, a collapsed reference, two blank lines before the definition): change one heading's text and write the
+page back. In the recorded style ([Writer](/reference/writer#the-recorded-style)) every line that was not edited comes
+back as it was, so the diff is the one line.
+
+<<< @/examples/snippets/edit_heading-edit.f90
+
+<<< @/examples/output/edit_heading.ansi{ansi}
+
+- The heading's text is the literal of its text node; a heading holding emphasis or code has more inline nodes (walk
+  them, [Walk](/reference/walk)).
+- The setext underline stays as long as it was: any length underlines a heading. A text needing escapes gets them, and
+  only them ([the escaping rules](/reference/writer#escaping)).
+- `canonical=.true.` writes the whole page in the canonical style instead: a page normalised once, then edited in small
+  diffs.
+
+::: info A table cell
+The plan named this recipe "Change a table cell with a small diff"; tables are GFM, written in plan step 5.1. The
+recipe will gain the table then.
+:::
+
+Reference: [Writer](/reference/writer). The whole program:
+
+<<< @/examples/snippets/edit_heading.f90
+
 ## Planned
 
 ::: info Planned
@@ -64,7 +91,7 @@ makes them possible.
 
 | Recipe | Plan step |
 |---|---|
-| Change a table cell with a small diff | 3.2 |
+| Change a table cell with a small diff (tables: GFM) | 5.1 |
 | Report a residual table while the run goes | 4.1 |
 | One report per MPI rank (code shown, not run: no MPI in the examples) | 4.2 |
 | Read a table into arrays | 5.1 |

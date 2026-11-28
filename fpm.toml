@@ -84,3 +84,8 @@ main = "baruch_test_pathological.F90"
 name = "baruch_test_equal"
 source-dir = "src/tests"
 main = "baruch_test_equal.F90"
+
+[[test]]
+name = "baruch_test_roundtrip"
+source-dir = "src/tests"
+main = "baruch_test_roundtrip.F90"

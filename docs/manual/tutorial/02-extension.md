@@ -74,9 +74,10 @@ never copies: the extension decides what to keep, here the text after the marker
 
 <<< @/examples/snippets/t02_extension-markdown.f90
 
-The tree writer (plan step 3.2) calls `write_markdown` for every node, entering and leaving it; a node of another kind
-answers `handled = .false.`. One hook serves both kinds of the extension: the block, and `%name%` written back as it
-was read.
+The tree writer ([chapter 6](/manual/tutorial/06-write)) calls `write_markdown` for every node, entering and leaving
+it; a node of another kind answers `handled = .false.`. One hook serves both kinds of the extension: the block, and
+`%name%` written back as it was read. A block's Markdown is written as lines behind the prefixes of the containers it
+is in ([Writer](/reference/writer#extensions)).
 
 ## Parsing with it
 

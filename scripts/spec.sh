@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Run a conformance suite: build the driver, render every example, compare with the expected HTML (plan
-# szaghi/BARUCH#1, step 1.4; reference page docs/reference/conformance.md).
+# szaghi/BARUCH#1, step 1.4; reference page docs/reference/conformance.md); or round-trip every example (step 3.2).
 #
 # Usage: bash scripts/spec.sh [OPTIONS] SUITE... [OPTIONS]      (options and suites in any order)
 #
@@ -19,13 +19,18 @@
 #   --no-build       run the driver already built for MODE.
 #   --blocks-only    count only the examples with no inline syntax (the rule: scripts/spec/compare.py), size printed.
 #   --failures N     show the Markdown and the normalised diff of the first N failing examples of each suite.
-#   --roundtrip      (plan step 3.2) parse, write Markdown, parse again, compare the trees; not available yet.
-#   --canonical      (plan step 3.2) with --roundtrip: the writer ignores the recorded style; not available yet.
+#   --roundtrip      (plan step 3.2) instead of the HTML: parse each example, write it back as Markdown, parse that,
+#                    compare the two trees (markdown_document%equal). The written Markdown goes to
+#                    build/spec/MODE/SUITE/roundtrip[-canonical]/NNNN.md, a difference to NNNN.md.fail; compare.py
+#                    lists each failure (example number, path of the first differing node, what differs), the counts,
+#                    and the byte-identical rate of the recorded style; the last lines are
+#                    "SUITE: P/T round trip (recorded|canonical) (E exact)" and "SUITE: byte-identical ...".
+#   --canonical      with --roundtrip: the writer ignores the recorded style (the canonical style).
 #   -h, --help       this text.
 #
 # For each suite the driver (src/tests/spec/baruch_spec_driver.F90) gets one `--extension NAME` per extension of
-# the suite and `--list build/spec/MODE/SUITE/list.tsv` (one "INPUT<TAB>OUTPUT" per example); it writes
-# build/spec/MODE/SUITE/html/NNNN.html, emptied first. scripts/spec/compare.py then prints passed/total per section
+# the suite and `--list build/spec/MODE/SUITE/list-html.tsv` (one "INPUT<TAB>OUTPUT" per example; list-roundtrip.tsv
+# or list-roundtrip-canonical.tsv for a round trip); it writes build/spec/MODE/SUITE/html/NNNN.html, emptied first. scripts/spec/compare.py then prints passed/total per section
 # and overall; the last line of each suite is "SUITE: P/T passed (E exact)".
 #
 # Exit status: 0 when every suite ran (whatever the count: the count is the result, compared by the plan's gates),
@@ -41,6 +46,8 @@ mode=tests-gnu
 build=1
 compare_opts=()
 names=()
+roundtrip=0
+canonical=0
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --mode ) [[ $# -ge 2 ]] || die '--mode needs a fobos mode'; mode=$2; shift 2 ;;
@@ -48,13 +55,24 @@ while [[ $# -gt 0 ]]; do
     --blocks-only ) compare_opts+=(--blocks-only); shift ;;
     --failures ) [[ $# -ge 2 && "$2" =~ ^[0-9]+$ ]] || die '--failures needs a number'
                  compare_opts+=(--failures "$2"); shift 2 ;;
-    --roundtrip | --canonical ) die "$1 is not available yet (plan szaghi/BARUCH#1, step 3.2)" ;;
+    --roundtrip ) roundtrip=1; shift ;;
+    --canonical ) canonical=1; shift ;;
     -h | --help ) usage; exit 0 ;;
     -* ) die "unknown option $1 (--help)" ;;
     * ) names+=("$1"); shift ;;
   esac
 done
 [[ ${#names[@]} -gt 0 ]] || die 'no suite given (--help)'
+[[ $canonical -eq 0 || $roundtrip -eq 1 ]] || die '--canonical needs --roundtrip'
+driver_opts=()
+subdir=html
+outext=html
+if [[ $roundtrip -eq 1 ]]; then
+  driver_opts+=(--roundtrip); compare_opts+=(--roundtrip); subdir=roundtrip; outext=md
+  if [[ $canonical -eq 1 ]]; then
+    driver_opts+=(--canonical); compare_opts+=(--canonical); subdir=roundtrip-canonical
+  fi
+fi
 
 # the registry: NAME<TAB>DIRECTORY<TAB>EXTENSIONS
 declare -A suite_dir suite_ext
@@ -85,21 +103,21 @@ status=0
 for name in "${suites[@]}"; do
   dir=${suite_dir[$name]}
   work=$out/$name
-  if ! { rm -rf "$work/html" && mkdir -p "$work/html"; }; then die "cannot create $work/html"; fi
+  if ! { rm -rf "${work:?}/$subdir" && mkdir -p "$work/$subdir"; }; then die "cannot create $work/$subdir"; fi
   # one example per line of the index, after its header: the number is the file name on four digits
   tail -n +2 "$dir/index.tsv" | while IFS=$'\t' read -r number _; do
     printf -v stem '%04d' "$((10#$number))"
-    printf '%s\t%s\n' "$dir/examples/$stem.md" "$work/html/$stem.html"
-  done > "$work/list.tsv"
+    printf '%s\t%s\n' "$dir/examples/$stem.md" "$work/$subdir/$stem.$outext"
+  done > "$work/list-$subdir.tsv"
   extension_opts=()
   if [[ "${suite_ext[$name]}" != - ]]; then
     IFS=, read -r -a exts <<< "${suite_ext[$name]}"
     for e in "${exts[@]}"; do extension_opts+=(--extension "$e"); done
   fi
-  if ! "$driver" "${extension_opts[@]}" --list "$work/list.tsv"; then
+  if ! "$driver" "${extension_opts[@]}" "${driver_opts[@]}" --list "$work/list-$subdir.tsv"; then
     printf 'spec.sh: %s: the driver reported errors (above); those examples have no output and fail\n' "$name" >&2
     status=1
   fi
-  python3 -I scripts/spec/compare.py --suite "$name" --actual "$work/html" "${compare_opts[@]}" || die 'compare.py failed'
+  python3 -I scripts/spec/compare.py --suite "$name" --actual "$work/$subdir" "${compare_opts[@]}" || die 'compare.py failed'
 done
 exit $status

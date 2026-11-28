@@ -30,12 +30,15 @@ public :: SLOT_CODE_FORM, SLOT_CODE_FENCE_CHAR, SLOT_CODE_FENCE_LENGTH
 public :: SLOT_BREAK_CHAR
 public :: SLOT_EMPHASIS_CHAR
 public :: SLOT_LINK_FORM
-public :: STRING_LITERAL, STRING_INFO, STRING_DESTINATION, STRING_TITLE, STRING_LABEL
+public :: SLOT_LINEBREAK_FORM, SLOT_LINEBREAK_SPACES
+public :: SLOT_CODE_TICKS
+public :: STRING_LITERAL, STRING_INFO, STRING_DESTINATION, STRING_TITLE, STRING_LABEL, STRING_RAW
 ! slot values
 public :: HEADING_ATX, HEADING_SETEXT
 public :: LIST_BULLET, LIST_ORDERED
 public :: CODE_INDENTED, CODE_FENCED
 public :: LINK_INLINE, LINK_FULL, LINK_COLLAPSED, LINK_SHORTCUT, LINK_AUTOLINK
+public :: LINEBREAK_BACKSLASH, LINEBREAK_SPACES
 
 integer(I4P), parameter :: NODE_NONE = 0_I4P !< A tombstone: an unlinked node, until compaction.
 
@@ -89,12 +92,18 @@ integer(I4P), parameter :: SLOT_BREAK_CHAR        = 1_I4P !< Thematic break (sty
 integer(I4P), parameter :: SLOT_EMPHASIS_CHAR     = 1_I4P !< Emph, strong (style): delimiter char (`*` or `_`).
 ! integer slots: link and image
 integer(I4P), parameter :: SLOT_LINK_FORM         = 1_I4P !< Link, image (style): `LINK_INLINE`...`LINK_AUTOLINK`.
+! integer slots: hard line break
+integer(I4P), parameter :: SLOT_LINEBREAK_FORM    = 1_I4P !< Hard break (style): `LINEBREAK_BACKSLASH`, `LINEBREAK_SPACES`.
+integer(I4P), parameter :: SLOT_LINEBREAK_SPACES  = 2_I4P !< Hard break (style): spaces before the line ending (2 or more).
+! integer slots: code span
+integer(I4P), parameter :: SLOT_CODE_TICKS        = 1_I4P !< Code span (style): backticks of its delimiters.
 ! string slots
 integer(I4P), parameter :: STRING_LITERAL     = 1_I4P !< Text, code, HTML, code block, extension kinds: the content.
 integer(I4P), parameter :: STRING_INFO        = 2_I4P !< Code block: the info string.
 integer(I4P), parameter :: STRING_DESTINATION = 1_I4P !< Link, image, link reference definition: the destination.
 integer(I4P), parameter :: STRING_TITLE       = 2_I4P !< Link, image, link reference definition: the title.
 integer(I4P), parameter :: STRING_LABEL       = 3_I4P !< Link, image, link reference definition: the label.
+integer(I4P), parameter :: STRING_RAW         = 2_I4P !< Code span (style): its content as written, when not the literal.
 
 ! slot values (0 always means "not recorded")
 integer(I4P), parameter :: HEADING_ATX    = 1_I4P !< `# Heading`.
@@ -108,6 +117,8 @@ integer(I4P), parameter :: LINK_FULL      = 2_I4P !< `[text][label]`.
 integer(I4P), parameter :: LINK_COLLAPSED = 3_I4P !< `[label][]`.
 integer(I4P), parameter :: LINK_SHORTCUT  = 4_I4P !< `[label]`.
 integer(I4P), parameter :: LINK_AUTOLINK  = 5_I4P !< `<destination>`.
+integer(I4P), parameter :: LINEBREAK_BACKSLASH = 1_I4P !< A backslash before the line ending.
+integer(I4P), parameter :: LINEBREAK_SPACES    = 2_I4P !< Two or more spaces before the line ending.
 
 contains
    pure function node_kind_name(kind) result(name)

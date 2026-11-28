@@ -1,0 +1,33 @@
+$ t06_write
+written back byte for byte: T
+Solver notes, revised
+============
+
+Set the _time step_ in [the input][input]:
+
+* `dt = 1e-3`
+* `cfl = 0.8`
+* \*not* emphasis, [not] a link, 3 < 4
+
+~~~ ini
+[solver]
+dt = 1e-3
+~~~
+
+[input]: https://example.org/solver.ini
+----- canonical
+# Solver notes, revised
+
+Set the *time step* in [the input](https://example.org/solver.ini):
+
+- `dt = 1e-3`
+- `cfl = 0.8`
+- \*not* emphasis, [not] a link, 3 < 4
+
+```ini
+[solver]
+dt = 1e-3
+```
+
+[input]: https://example.org/solver.ini
+reads back to the same tree: T

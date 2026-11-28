@@ -12,6 +12,8 @@ bash scripts/spec.sh commonmark --blocks-only    # only the examples with no inl
 bash scripts/spec.sh commonmark --mode tests-nvf # another compiler: tests-nvf, tests-intel, or a -debug mode
 bash scripts/spec.sh commonmark --failures 5     # also the Markdown and the diff of the first 5 failures
 bash scripts/spec.sh all                         # every suite
+bash scripts/spec.sh --roundtrip commonmark      # parse, write back (recorded style), parse, compare the trees
+bash scripts/spec.sh --roundtrip --canonical commonmark  # the same, written in the canonical style
 ```
 
 `spec.sh` builds the driver alone (`fobis build --mode MODE --target src/tests/spec/baruch_spec_driver.F90`) into
@@ -31,8 +33,8 @@ commonmark: 1/652 passed (1 exact)
 
 The last line of each suite has that form. The exit status is 0 when every suite ran, whatever the count (the count is
 the result, compared from step to step), 1 when the driver reported an error on an example (the counts are printed
-anyway), 2 on a usage or build error. `--roundtrip` and `--canonical` are reserved for the round trip (plan step 3.2)
-and refused until then.
+anyway), 2 on a usage or build error. `--roundtrip` (with `--canonical`) runs the [round trip](#round-trip) instead
+of the HTML comparison.
 
 ### Suites
 
@@ -83,7 +85,8 @@ whitespace fixes away from them (`-text -whitespace`).
 ## The driver
 
 `src/tests/spec/baruch_spec_driver.F90` takes `--list FILE` (one `INPUT<TAB>OUTPUT` per line) and, for each example,
-loads the Markdown (`load_file`), parses it (`markdown_options%parse`, no extension) and writes the HTML. An example
+loads the Markdown (`load_file`), parses it (`markdown_options%parse`, no extension) and writes the HTML (with
+`--roundtrip [--canonical]`, the [round trip](#round-trip) instead). An example
 that cannot be read, parsed or written is reported on standard error and gets no output, so it fails. A suite with
 extensions passes `--extension NAME` for each.
 
@@ -271,6 +274,45 @@ by 2.3 (15, 22, 23, 32, 33, 37, 638, 639) pass, and so does every other one.
 | **total** | **652** | **652** |
 
 The pathological inputs (plan step 2.6) are [below](#pathological-inputs).
+
+## Round trip
+
+The [writer](/reference/writer) is checked on every example of a suite: the driver parses it, writes the tree back as
+Markdown (`write_markdown`, the recorded style, or the canonical one with `--canonical`), parses what it wrote and
+compares the two trees (`markdown_document%equal`, [Equality](/reference/equality)). The written Markdown goes to
+`build/spec/MODE/SUITE/roundtrip/NNNN.md` (`roundtrip-canonical/` with `--canonical`, emptied first); a difference to
+`NNNN.md.fail`. `compare.py --roundtrip` lists every failure with its example number and the difference `equal` gives
+(the path of the first differing node, what differs), prints the counts per section (the `exact` column counts the
+examples written back byte for byte), then:
+
+```text
+commonmark: 652/652 round trip (recorded) (514 exact)
+commonmark: byte-identical (recorded style, no tab, no trailing space): 498/607 (82.0%)
+```
+
+The **byte-identical rate** is measured on the examples with no tab and no trailing space (607 of 652: a tab or a
+trailing space is often what an example is about, and no writer keeps both): how much of the source's style the
+recorded style gives back. It is a regression gate for the later steps, not a promise; the plan's target was 90%. The
+82% left are what the tree does not record, mostly the spec's deliberate oddities:
+
+| Section | Not identical | Why |
+|---|---|---|
+| List items, Lists, Block quotes | 33 | lazy continuation lines (written with their markers), `>` without its space, the indentation of nested blocks, an item's blank first line |
+| Links, Link reference definitions, Images | 29 | escapes and references in destinations and titles, `'` and `(` title quotes, pointy destinations, spaces inside the parentheses, a `[` escaped where it would pair with the link after it |
+| Emphasis and strong emphasis | 14 | runs the source let the delimiter algorithm split (`***foo**`, `foo******bar`), written as an emphasis and an escaped text |
+| Entity and numeric character references, Backslash escapes | 12 | escapes and references where none is needed (`\$`, `&copy;`): the text holds the characters |
+| Fenced code blocks | 10 | an unclosed fence (closed), a fence's indentation, spaces before the info string of a fence inside a container |
+| ATX and setext headings, Raw HTML, Code spans, Autolinks | 11 | spaces after the `#`s, a closing sequence escaped another way, an indented continuation line under a paragraph, a `<` escaped where the source broke the HTML differently |
+
+On real documents the rate is far higher: the 120 Markdown pages of the documentation of BARUCH, StringiFor, HERALD and
+FLAP (a local check) are all written back byte for byte, and all read back equal.
+
+| Step | Round trip, recorded | Round trip, canonical | Byte-identical (recorded) |
+|---|---|---|---|
+| 3.2 | **652**/652 | **652**/652 | 498/607 (82.0%) |
+
+The same counts with gfortran (`tests-gnu-debug`), nvfortran (`tests-nvf`) and ifx (`tests-intel-debug`);
+`baruch_test_roundtrip` checks them on every build (`scripts/run_tests.sh`, `fpm test`).
 
 ## Pathological inputs
 

@@ -26,7 +26,8 @@ Work in progress: the document tree, its input, the extension interface, the Com
 structure of CommonMark 0.31.2, source style recorded), the inline parser (escapes, character references, code
 spans, autolinks, raw HTML, line breaks, emphasis, links, images, references), the HTML renderer and the event walk
 are written, with the conformance harness that runs the 652 CommonMark 0.31.2 examples
-(`bash scripts/spec.sh commonmark`: 652/652); the writers are not yet. The plan is [#1](https://github.com/szaghi/BARUCH/issues/1).
+(`bash scripts/spec.sh commonmark`: 652/652), and the tree writer, recorded or canonical style
+(`bash scripts/spec.sh --roundtrip commonmark`: 652/652 read back to the same tree); the streaming writer is not yet. The plan is [#1](https://github.com/szaghi/BARUCH/issues/1).
 
 ## Quick start
 
