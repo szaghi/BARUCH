@@ -52,6 +52,17 @@ export default withMermaid({
   title: 'BARUCH',
   description: 'Bidirectional AST Reader and Unparser for CommonMark, Hookable: a pure Fortran Markdown parser and emitter, with opt-in GFM and VitePress extensions',
   base: '/BARUCH/',
+  // the identity (Kata-igeta ni bun in Rinko, docs/brand/): an adaptive SVG favicon with ICO and PNG fallbacks, the
+  // touch icon, the web manifest and the theme colour of each scheme (the ground of day and night)
+  head: [
+    ['link', { rel: 'icon', type: 'image/svg+xml', href: '/BARUCH/favicon/favicon.svg' }],
+    ['link', { rel: 'icon', type: 'image/png', sizes: '32x32', href: '/BARUCH/favicon/favicon-32.png' }],
+    ['link', { rel: 'icon', href: '/BARUCH/favicon/favicon.ico', sizes: '48x48' }],
+    ['link', { rel: 'apple-touch-icon', href: '/BARUCH/favicon/apple-touch-icon.png' }],
+    ['link', { rel: 'manifest', href: '/BARUCH/favicon/site.webmanifest' }],
+    ['meta', { name: 'theme-color', content: '#eef4ec', media: '(prefers-color-scheme: light)' }],
+    ['meta', { name: 'theme-color', content: '#060c07', media: '(prefers-color-scheme: dark)' }],
+  ],
   srcExclude: ['ford.md', 'examples/**'], // examples/files/*.md are the examples' input documents, not pages
 
   markdown: {
@@ -66,6 +77,9 @@ export default withMermaid({
   },
 
   themeConfig: {
+    // the glyph (ring, crest and 文, cropped) is the mark for small sizes; the full mark is the home page's
+    logo: { light: '/logo/baruch-glyph.svg', dark: '/logo/baruch-glyph-dark.svg', alt: 'BARUCH' },
+    siteTitle: 'BARUCH',
     nav: [
       { text: 'Start',     link: '/guide/',          activeMatch: '^/guide/' },
       { text: 'Tutorial',  link: '/manual/tutorial/', activeMatch: '^/manual/tutorial/' },
