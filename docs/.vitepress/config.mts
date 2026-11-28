@@ -63,7 +63,8 @@ export default withMermaid({
     ['meta', { name: 'theme-color', content: '#eef4ec', media: '(prefers-color-scheme: light)' }],
     ['meta', { name: 'theme-color', content: '#060c07', media: '(prefers-color-scheme: dark)' }],
   ],
-  srcExclude: ['ford.md', 'examples/**'], // examples/files/*.md are the examples' input documents, not pages
+  // examples/files/*.md are the examples' input documents, brand/ the identity's record: neither is a page
+  srcExclude: ['ford.md', 'examples/**', 'brand/**'],
 
   markdown: {
     math: true,
