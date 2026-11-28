@@ -932,7 +932,7 @@ contains
    integer                    :: k     !< Counter.
    integer                    :: q, m  !< Draws.
    ! substrings, not repeat(): nvfortran 26.9 gives bytes of an earlier string for `repeat(' ', q)` and for
-   ! `repeat(merge('`', '~', c), m)` here (q, m variables); not reduced (notes/nvfortran-repeat-stale-bytes.md)
+   ! `repeat(merge('`', '~', c), m)` here (q, m variables): szaghi/BARUCH#2 B4, reproducer notes/nvfortran-repeat-stale-bytes.f90
    character(*), parameter    :: SPACES = '     '  !< Indentation drawn.
    character(*), parameter    :: TICKS  = '`````'  !< A fence-like line drawn.
    character(*), parameter    :: TILDES = '~~~~~'  !< A fence-like line drawn.
